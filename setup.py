@@ -16,14 +16,13 @@ setuptools.setup(
     project_urls={
         "Bug Tracker": "https://github.com/pypa/sampleproject/issues",
     },
-    packages=['dgNN'],
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: Apache Software License",
         "Operating System :: OS Independent",
     ],
-    package_dir={"": "dgNN"},
-    packages=setuptools.find_packages(where="dgNN"),
+    # package_dir={"": "dgNN"},
+    packages=setuptools.find_packages(),
     python_requires=">=3.6",
     ext_modules=[
         CUDAExtension('fused_gat', ['dgNN/src/fused_gat/fused_gat.cpp', 'dgNN/src/fused_gat/fused_gat_kernel.cu']),
