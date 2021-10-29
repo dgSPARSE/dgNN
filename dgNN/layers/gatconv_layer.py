@@ -1,10 +1,7 @@
 from torch import nn
-import sys
-
 import torch
 
-sys.path.append('..')
-from operators.fused_gat import fused_gat_op
+from ..operators.fused_gat import fused_gat_op
 
 
 class GATConv(nn.Module): # our gat layer

@@ -1,7 +1,5 @@
 from torch import nn
-import sys
-sys.path.append('..')
-from operators.fused_edgeconv import fused_edgeconv_op
+from ..operators.fused_edgeconv import fused_edgeconv_op
 
 class EdgeConv(nn.Module):
     def __init__(self,
