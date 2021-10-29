@@ -2,6 +2,4 @@
 data/
 *.txt
 *.json
-src/build
-src/dgNN.egg-info
-src/dist
+build/
