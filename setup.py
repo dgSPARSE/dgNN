@@ -6,7 +6,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setuptools.setup(
     name="dgNN",
-    version="0.0.1",
+    version="0.0.2",
     author="HenryChang fishming",
     author_email="author@example.com",
     description="A small example package",
@@ -16,9 +16,10 @@ setuptools.setup(
     project_urls={
         "Bug Tracker": "https://github.com/pypa/sampleproject/issues",
     },
+    packages=['dgNN'],
     classifiers=[
         "Programming Language :: Python :: 3",
-        "License :: OSI Approved :: Apache 2.0 License",
+        "License :: OSI Approved :: Apache Software License",
         "Operating System :: OS Independent",
     ],
     package_dir={"": "dgNN"},
