@@ -1,0 +1,7 @@
+*__pycache__
+data/
+*.txt
+*.json
+src/build
+src/dgNN.egg-info
+src/dist
