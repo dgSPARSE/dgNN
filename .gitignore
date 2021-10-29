@@ -3,3 +3,5 @@ data/
 *.txt
 *.json
 build/
+dgNN/dgNN.egg-info/
+dist/

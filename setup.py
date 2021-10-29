@@ -5,9 +5,9 @@ with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
 
 setuptools.setup(
-    name="example-pkg-YOUR-USERNAME-HERE",
+    name="dgNN",
     version="0.0.1",
-    author="Example Author",
+    author="HenryChang fishming",
     author_email="author@example.com",
     description="A small example package",
     long_description=long_description,
