@@ -4,9 +4,7 @@ import torch as th
 from torch import nn
 from torch.nn import init
 
-import sys
-sys.path.append('..')
-from operators.fused_gmmconv import GmmConvFuse
+from ..operators.fused_gmmconv import GmmConvFuse
 
 
 

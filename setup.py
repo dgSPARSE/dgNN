@@ -1,5 +1,6 @@
 import setuptools
 from torch.utils.cpp_extension import BuildExtension, CUDAExtension
+import torch
 
 with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
