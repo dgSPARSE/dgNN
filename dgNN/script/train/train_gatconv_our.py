@@ -6,10 +6,10 @@ import dgl
 # import dgl.data
 
 import torch.nn as nn
-import sys
-sys.path.append('../..')
+# import sys
+# sys.path.append('../..')
 # from util.indicator import *
-from layers.gatconv_layer import GATConv
+from dgNN.layers.gatconv_layer import GATConv
 # from torch.autograd.profiler import profile
 
 
