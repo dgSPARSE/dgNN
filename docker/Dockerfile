@@ -1,25 +1,29 @@
-FROM nvidia/cuda:11.1.1-devel-centos8 as base
+ARG nvidia/cuda
+FROM ${IMAGE_NAME}:10.0-devel-centos7 as base
 
 FROM base as base-amd64
 
-ENV NV_CUDNN_VERSION 8.0.5.39-1
-ENV NV_CUDNN_PACKAGE libcudnn8-devel-${NV_CUDNN_VERSION}.cuda11.1
+ENV NV_CUDNN_VERSION 7.6.5.32-1
+ENV NV_CUDNN_PACKAGE libcudnn7-devel-${NV_CUDNN_VERSION}.cuda10.0
 
-FROM base as base-arm64
-
-ENV NV_CUDNN_VERSION 8.0.5.39-1
-ENV NV_CUDNN_PACKAGE libcudnn8-devel-${NV_CUDNN_VERSION}.cuda11.1
 
 FROM base as base-ppc64le
 
-ENV NV_CUDNN_VERSION 8.0.4.30-1
-ENV NV_CUDNN_PACKAGE libcudnn8-devel-${NV_CUDNN_VERSION}.cuda11.1
+ENV NV_CUDNN_VERSION 7.6.5.32-1
+ENV NV_CUDNN_PACKAGE libcudnn7-devel-${NV_CUDNN_VERSION}.cuda10.0
+
+
+FROM base-${TARGETARCH}
+
+ARG TARGETARCH
 
 LABEL maintainer "NVIDIA CORPORATION <sw-cuda-installer@nvidia.com>"
 
-LABEL com.nvidia.cudnn.version="${NV_CUDNN_VERSION}"
+ENV CUDNN_VERSION ${NV_CUDNN_VERSION}
+LABEL com.nvidia.cudnn.version="${CUDNN_VERSION}"
 
-RUN yum install -y ${NV_CUDNN_PACKAGE} \
+RUN yum install -y \
+    ${NV_CUDNN_PACKAGE} \
     && yum clean all \
     && rm -rf /var/cache/yum/*
 
