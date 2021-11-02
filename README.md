@@ -1,17 +1,12 @@
 ### How to run
 
 ```shell
-cd src
 bash install.sh
-cd ..
-cd script/train
-python train_gatconv_our.py
+cd dgNN/script
+python test_gat.py
 ```
 
 ### Requirement
-
-dgl
-scipy
 pytorch
 
 ### LICENSE
