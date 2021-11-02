@@ -1,5 +1,4 @@
-ARG nvidia/cuda
-FROM ${IMAGE_NAME}:10.0-devel-centos7 as base
+FROM nvidia/cuda:10.0-devel-centos7 as base
 
 FROM base as base-amd64
 
@@ -11,11 +10,6 @@ FROM base as base-ppc64le
 
 ENV NV_CUDNN_VERSION 7.6.5.32-1
 ENV NV_CUDNN_PACKAGE libcudnn7-devel-${NV_CUDNN_VERSION}.cuda10.0
-
-
-FROM base-${TARGETARCH}
-
-ARG TARGETARCH
 
 LABEL maintainer "NVIDIA CORPORATION <sw-cuda-installer@nvidia.com>"
 
