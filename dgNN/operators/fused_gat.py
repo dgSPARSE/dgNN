@@ -27,3 +27,4 @@ class FusedGATFunction(torch.autograd.Function):
         # print(torch.isnan(grad_attn_row).sum())
         # print(torch.isnan(grad_attn_col).sum())
         return grad_attn_row,grad_attn_col,None,None,None,None,None,grad_feat,None
+
