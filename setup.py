@@ -7,7 +7,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setuptools.setup(
     name="dgNN",
-    version="0.0.2",
+    version="0.1",
     author="HenryChang fishming",
     author_email="author@example.com",
     description="A small example package",

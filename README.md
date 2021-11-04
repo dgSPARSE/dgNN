@@ -4,6 +4,14 @@ dgNN is a high-performance backend for GNN layers with DFG (Data Flow Graph) lev
 
 ### How to install
 
+**through pip**
+
+```
+pip install dgNN
+```
+
+If pip couldn't build dgNN, we recommend you to build dgNN from source.
+
 ```shell
 git clone git@github.com:dgSPARSE/dgNN.git
 cd dgNN
