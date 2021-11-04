@@ -5,7 +5,7 @@ import os
 import fused_edgeconv
 
 
-def fused_edgeconv_op(k,src_ind,h_src,h_dst):
+def EdgeConvFuse(k,src_ind,h_src,h_dst):
     return FusedEdgeConvFunction.apply(k,src_ind,h_src,h_dst)
 
 class FusedEdgeConvFunction(torch.autograd.Function):

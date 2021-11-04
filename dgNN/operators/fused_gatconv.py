@@ -1,9 +1,9 @@
 from torch.utils.cpp_extension import load
 import torch
 # import dgNN
-import fused_gat as fused_gat
+import fused_gatconv as fused_gat
 
-def fused_gat_op(attn_row,attn_col,row_ptr,col_ind,col_ptr,row_ind,negative_slope,in_feat):
+def GATConvFuse(attn_row,attn_col,row_ptr,col_ind,col_ptr,row_ind,negative_slope,in_feat):
     return FusedGATFunction.apply(attn_row,attn_col,row_ptr,col_ind,col_ptr,row_ind,negative_slope,in_feat)
 
 

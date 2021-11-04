@@ -1,38 +1,10 @@
 import os
 import torch
 
-import fused_gmm as gmm
+import fused_gmmconv as gmm
 import mhsddmm
 import mhtranspose
-# from torch.utils.cpp_extension import load
 # import time
-
-# path = os.path.join(os.path.dirname(os.path.dirname(__file__)))
-
-# # SPMM
-# # try:
-# gmm = load(
-#     name="gmmconv",
-#     sources=[
-#         os.path.join(path, "src/fused_gmmconv/gmmconv.cc"),
-#         os.path.join(path, "src/fused_gmmconv/gmmconv.cu"),
-#     ],
-#     verbose=True,
-# )
-# mhsddmm = load(
-#     name="mhsddmm",
-#     sources=[
-#         os.path.join(path, "src/sddmm/mhsddmm.cc"),
-#         os.path.join(path, "src/sddmm/mhsddmm.cu"),
-#     ],
-#     verbose=True,
-# )
-
-# mhtranspose = load(
-#     name="mhtranspose",
-#     sources=[os.path.join(path, "src/csr2csc/mhtranspose.cc"), os.path.join(path, "src/csr2csc/mhtranspose.cu")],
-#     verbose=False,
-# )
 
 def GmmConvFuse(rowptr, colind, colptr, rowind, permute, node_feat, pseudo, mu, sigma):
     return GmmFuseFunction.apply(rowptr, colind, colptr, rowind, permute, node_feat, pseudo, mu, sigma)

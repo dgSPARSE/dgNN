@@ -1,8 +1,7 @@
 from torch import nn
 import torch
 
-from ..operators.fused_gat import fused_gat_op
-
+from ..operators.fused_gatconv import GATConvFuse
 
 class GATConv(nn.Module): # our gat layer
     def __init__(self,
@@ -49,7 +48,7 @@ class GATConv(nn.Module): # our gat layer
         attn_row = (self.attn_l * h).sum(dim=-1)
         attn_col = (self.attn_r * h).sum(dim=-1)
         
-        out=fused_gat_op(attn_row,attn_col,row_ptr,col_ind,col_ptr,row_ind,self.negative_slope,h)
+        out=GATConvFuse(attn_row,attn_col,row_ptr,col_ind,col_ptr,row_ind,self.negative_slope,h)
             
         return out
 

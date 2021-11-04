@@ -6,8 +6,6 @@ from torch.nn import init
 
 from ..operators.fused_gmmconv import GmmConvFuse
 
-
-
 class GMMConv(nn.Module):
     def __init__(self,
                  in_feats,

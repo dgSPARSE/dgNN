@@ -26,9 +26,9 @@ setuptools.setup(
     packages=setuptools.find_packages(),
     python_requires=">=3.6",
     ext_modules=[
-        CUDAExtension('fused_gat', ['dgNN/src/fused_gat/fused_gat.cpp', 'dgNN/src/fused_gat/fused_gat_kernel.cu'], extra_compile_args={'cxx':[], 'nvcc':['-arch=sm_70']}),
+        CUDAExtension('fused_gatconv', ['dgNN/src/fused_gatconv/fused_gatconv.cpp', 'dgNN/src/fused_gatconv/fused_gatconv_kernel.cu'], extra_compile_args={'cxx':[], 'nvcc':['-arch=sm_70']}),
         CUDAExtension('fused_edgeconv',['dgNN/src/fused_edgeconv/fused_edgeconv.cpp','dgNN/src/fused_edgeconv/fused_edgeconv_kernel.cu'], extra_compile_args={'cxx':[], 'nvcc':['-arch=sm_70']}),
-        CUDAExtension('fused_gmm',['dgNN/src/fused_gmm/fused_gmm.cpp','dgNN/src/fused_gmm/fused_gmm_kernel.cu'], extra_compile_args={'cxx':[], 'nvcc':['-arch=sm_70']}),
+        CUDAExtension('fused_gmmconv',['dgNN/src/fused_gmmconv/fused_gmmconv.cpp','dgNN/src/fused_gmmconv/fused_gmmconv_kernel.cu'], extra_compile_args={'cxx':[], 'nvcc':['-arch=sm_70']}),
         CUDAExtension('mhsddmm',['dgNN/src/sddmm/mhsddmm.cc','dgNN/src/sddmm/mhsddmm_kernel.cu'], extra_compile_args={'cxx':[], 'nvcc':['-arch=sm_70']}),
         CUDAExtension('mhtranspose',['dgNN/src/csr2csc/mhtranspose.cc','dgNN/src/csr2csc/mhtranspose_kernel.cu'], extra_compile_args={'cxx':[], 'nvcc':['-arch=sm_70']})
         ],

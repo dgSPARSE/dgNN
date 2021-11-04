@@ -1,5 +1,5 @@
 from torch import nn
-from ..operators.fused_edgeconv import fused_edgeconv_op
+from ..operators.fused_edgeconv import EdgeConvFuse
 
 class EdgeConv(nn.Module):
     def __init__(self,
@@ -36,7 +36,7 @@ class EdgeConv(nn.Module):
         h_phi=self.phi(feat)
         h_src=h_theta
         h_dst=h_phi-h_theta
-        result=fused_edgeconv_op(k,src_ind,h_src,h_dst)
+        result=EdgeConvFuse(k,src_ind,h_src,h_dst)
         
         return result
 

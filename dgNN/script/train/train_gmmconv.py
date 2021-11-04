@@ -8,10 +8,8 @@ import torch.nn.functional as F
 from dgl import DGLGraph
 from scipy import sparse
 from dgl.data import register_data_args, load_data
-import sys
 # import GPUtil
-sys.path.append('../..')
-from layers.gmmconv_layer import GMMConv
+from dgNN.layers.gmmconv_layer import GMMConv
 # from util.indicator import *
 import scipy.sparse as sp
 from torch.utils.cpp_extension import load
@@ -183,7 +181,7 @@ if __name__ == '__main__':
                         help="gpu")
     parser.add_argument("--lr", type=float, default=1e-2,
                         help="learning rate")
-    parser.add_argument("--n-epochs", type=int, default=2,
+    parser.add_argument("--n-epochs", type=int, default=200,
                         help="number of training epochs")
     parser.add_argument("--n-hidden", type=int, default=16,
                         help="number of hidden gcn units")

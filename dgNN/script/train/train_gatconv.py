@@ -6,8 +6,6 @@ import dgl
 # import dgl.data
 
 import torch.nn as nn
-# import sys
-# sys.path.append('../..')
 # from util.indicator import *
 from dgNN.layers.gatconv_layer import GATConv
 # from torch.autograd.profiler import profile

@@ -54,40 +54,6 @@ __global__ void fuseGmm(int kernels, int dim, int embed, int *csrptr,
     out[rid * embed * kernels + kid * embed + fid] = acc;
 }
 
-__global__ void gmm_stash(int kernels, int dim, int embed, int *csrptr,
-                          int *colind, float *node_feat, float *pseudo,
-                          float *mu, float *inv_sigma, float *out,
-                          float *gaussian) {
-  extern __shared__ float shmem[];
-  int ssize = blockDim.x;
-  int rid = blockIdx.x;
-  int kid = threadIdx.z;
-  int fid = (threadIdx.y << 5) + threadIdx.x;
-  int lb = csrptr[rid];
-  int hb = csrptr[rid + 1];
-  int ptr = lb;
-  float acc = 0;
-  // out[rid * embed + fid] = 0;
-  for (; ptr < hb; ptr += ssize) {
-    float gauss = 0;
-    for (int d = 0; d < dim; ++d) {
-      float tmp = pseudo[(ptr + threadIdx.x) * dim + d] - mu[kid * dim + d];
-      float sig = inv_sigma[kid * dim + d];
-      gauss += tmp * tmp * sig * sig;
-    }
-    gauss = exp(-0.5 * gauss);
-    gaussian[(ptr + threadIdx.x) * kernels + kid] = gauss;
-    shmem[threadIdx.x] = gauss;
-    __syncwarp();
-    for (int cnt = 0; cnt < ssize && cnt + ptr < hb; cnt++) {
-      int col = colind[cnt + ptr];
-      acc += node_feat[col * embed * kernels + kid * embed + fid] * shmem[cnt];
-    }
-  }
-  if (fid < embed)
-    out[rid * embed * kernels + kid * embed + fid] = acc;
-}
-
 __global__ void gaussian_bp(int edges, int kernels, int dim, float *pseudo,
                             float *mu, float *inv_sigma, float *grad_gauss,
                             float *pseudo_out, float *sigma_out,
@@ -153,29 +119,6 @@ torch::Tensor gmmconv_cuda(torch::Tensor csrptr, torch::Tensor colind,
       node_feat.data_ptr<float>(), pseudo.data_ptr<float>(),
       mu.data_ptr<float>(), inv_sigma.data_ptr<float>(), out.data_ptr<float>());
   return out;
-}
-
-std::vector<torch::Tensor>
-gmmconv_stash_cuda(torch::Tensor csrptr, torch::Tensor colind,
-                   torch::Tensor node_feat, torch::Tensor pseudo,
-                   torch::Tensor mu, torch::Tensor inv_sigma) {
-  const auto edges = pseudo.size(0);
-  const auto K = mu.size(0);
-  const auto dim = mu.size(1);
-  const auto nodes = csrptr.size(0) - 1;
-  const auto embed = node_feat.size(2);
-  auto devid = pseudo.device().index();
-  auto options =
-      torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA, devid);
-  auto out = torch::empty({nodes, K, embed}, options);
-  auto gaussian = torch::empty({edges, K}, options);
-  gmm_stash<<<dim3(nodes, 1, 1), dim3(32, CEIL(embed, 32), K),
-              32 * sizeof(float)>>>(
-      K, dim, embed, csrptr.data_ptr<int>(), colind.data_ptr<int>(),
-      node_feat.data_ptr<float>(), pseudo.data_ptr<float>(),
-      mu.data_ptr<float>(), inv_sigma.data_ptr<float>(), out.data_ptr<float>(),
-      gaussian.data_ptr<float>());
-  return {out, gaussian};
 }
 
 std::vector<torch::Tensor> gaussian_bp_cuda(torch::Tensor pseudo,

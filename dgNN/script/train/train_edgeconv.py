@@ -2,9 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from dgl.nn.pytorch import KNNGraph
-import sys
-sys.path.append('../..')
-from layers.edgeconv_layer import EdgeConv
+
+from dgNN.layers.edgeconv_layer import EdgeConv
 import time
 import numpy as np
 
