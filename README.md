@@ -30,7 +30,9 @@ docker run -it dgNN:v1 /bin/bash
 ### Examples
 
 Our training script is modified from [DGL](https://github.com/dmlc/dgl). Now we implements three popular GNN models.
+
 **Run GAT**
+
 [DGL Code](https://github.com/dmlc/dgl/tree/master/examples/pytorch/gat)
 
 ```python
@@ -39,6 +41,7 @@ python train_gatconv.py --num-hidden=64 --num-heads=4 --dataset cora --gpu 0
 ```
 
 **Run Monet**
+
 [DGL Code](https://github.com/dmlc/dgl/tree/master/examples/pytorch/monet)
 
 ```python
@@ -47,6 +50,7 @@ python train_gmmconv.py --n-kernels 3 --pseudo-dim 2 --dataset cora --gpu 0
 ```
 
 **Run PointCloud**
+
 We use modelnet40-sampled-2048 data in our PointNet. [DGL Code](https://github.com/dmlc/dgl/tree/master/examples/pytorch/pointcloud)
 
 ```python
