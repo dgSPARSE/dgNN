@@ -30,7 +30,8 @@ setuptools.setup(
         CUDAExtension('fused_edgeconv',['dgNN/src/fused_edgeconv/fused_edgeconv.cpp','dgNN/src/fused_edgeconv/fused_edgeconv_kernel.cu'], extra_compile_args={'cxx':[], 'nvcc':['-arch=sm_70']}),
         CUDAExtension('fused_gmmconv',['dgNN/src/fused_gmmconv/fused_gmmconv.cpp','dgNN/src/fused_gmmconv/fused_gmmconv_kernel.cu'], extra_compile_args={'cxx':[], 'nvcc':['-arch=sm_70']}),
         CUDAExtension('mhsddmm',['dgNN/src/sddmm/mhsddmm.cc','dgNN/src/sddmm/mhsddmm_kernel.cu'], extra_compile_args={'cxx':[], 'nvcc':['-arch=sm_70']}),
-        CUDAExtension('mhtranspose',['dgNN/src/csr2csc/mhtranspose.cc','dgNN/src/csr2csc/mhtranspose_kernel.cu'], extra_compile_args={'cxx':[], 'nvcc':['-arch=sm_70']})
+        CUDAExtension('mhtranspose',['dgNN/src/csr2csc/mhtranspose.cc','dgNN/src/csr2csc/mhtranspose_kernel.cu'], extra_compile_args={'cxx':[], 'nvcc':['-arch=sm_70']}),
+        CUDAExtension('format_conversion',['dgNN/src/convert/convert.cpp','dgNN/src/convert/convert_kernel.cu'],extra_cflags=["-lcusparse"],extra_compile_args={'cxx':[], 'nvcc':['-arch=sm_70']}),
         ],
     
     cmdclass={'build_ext': BuildExtension},
