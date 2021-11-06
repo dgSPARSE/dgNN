@@ -1,6 +1,6 @@
 import argparse
 import time
-from numpy import absolute
+from numpy import absolute, tile
 import torch
 import dgl
 # from dgNN.operators.tile_balance_scheduler import TileBalanceScheduler
@@ -18,11 +18,12 @@ def TileBalanceScheduler(row_ptr):
     for rid in range(row_ptr.shape[0]-1):
         lb=row_ptr[rid]
         hb=row_ptr[rid+1]
-        for _ in range((hb-lb+31)//32):
+        for tid in range((hb-lb+31)//32):
             tile_scheduler.append(rid)
+            tile_scheduler.append(tid)
     print(len(tile_scheduler))
     # exit()
-    return torch.tensor(tile_scheduler).int()
+    return torch.tensor(tile_scheduler).view(-1,2).int()
 
 
 
@@ -89,14 +90,15 @@ def main(args):
     row_ptr=row_ptr.to(args.gpu).int()
     col_ind=col_ind.to(args.gpu).int()
     tile_scheduler=tile_scheduler.to(args.gpu).int()
+    print(tile_scheduler)
 
 
     col_ptr,row_ind=preprocess_csr2csc(row_ptr,col_ind,args)
     
     # model=GATConv(args.in_feats,args.out_feats,args.num_heads).to(args.gpu)
-    features=torch.rand(row_ptr.shape[0]-1,args.num_heads,args.in_feats,device=args.gpu)
-    attn_row=torch.rand(row_ptr.shape[0]-1,args.num_heads,device=args.gpu)
-    attn_col=torch.rand(row_ptr.shape[0]-1,args.num_heads,device=args.gpu)
+    features=(torch.rand(row_ptr.shape[0]-1,args.num_heads,args.in_feats,device=args.gpu)-0.4)
+    attn_row=torch.rand(row_ptr.shape[0]-1,args.num_heads,device=args.gpu)-0.6
+    attn_col=torch.rand(row_ptr.shape[0]-1,args.num_heads,device=args.gpu)-0.4
     
     
 
@@ -126,7 +128,11 @@ def main(args):
     # print(torch.allclose(out1[0],out2[0],1e-5))
     print(out1.cpu())
     print(out2.cpu())
-    # print(torch.max(torch.absolute(tmp3.cpu()-tmp1.cpu())))
+    print(torch.max(torch.absolute(out2.cpu()-out1.cpu())))
+
+    print(torch.max(torch.absolute(tmp3.cpu()-tmp1.cpu())))
+    print(torch.max(torch.absolute(tmp4.cpu()-tmp2.cpu())))
+
     print(tmp1.cpu())
     print(tmp3.cpu())
     print(tmp2.cpu())
@@ -135,7 +141,7 @@ def main(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='GAT')
-    parser.add_argument("--in_feats",type=int,default=32)
+    parser.add_argument("--in_feats",type=int,default=64)
     parser.add_argument("--out_feats",type=int,default=6)
     parser.add_argument("--dataset",type=str,default="reddit")
     parser.add_argument("--gpu", type=int, default=0,

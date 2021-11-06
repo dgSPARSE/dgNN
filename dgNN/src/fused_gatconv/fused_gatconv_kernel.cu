@@ -788,7 +788,7 @@ __device__ __forceinline__ float atomicMaxFloat(float *addr, float value)
   return old;
 }
 
-__global__ void fused_forward_kernel_tb(
+__global__ void fused_forward_kernel_tb_pr(
     int m, int nnz, int h, int f,
     const float *attn_row, const float *attn_col,
     const int *row_ptr, const int *col_ind,
@@ -799,72 +799,177 @@ __global__ void fused_forward_kernel_tb(
     float *out_feat)
 {
   int tile_id = blockIdx.x;
-  int rid = tile_scheduler[tile_id];
+  int rid = tile_scheduler[tile_id * 2];
+  int tile_id_in_row = tile_scheduler[tile_id * 2 + 1];
   int hid = threadIdx.y;
   int lb = row_ptr[rid];
   int hb = row_ptr[rid + 1];
-  int ptr = lb + threadIdx.x;
+  int ptr = lb + threadIdx.x + (tile_id_in_row << 5);
   int rh_id = rid * h + hid;
   int fid = blockIdx.y;
-
-  int tile_per_row = (hb - lb + 31) / 32;
 
   float weightMax = -1e38;
   float expAll = 0;
   float partial_sum = 0;
-  float *buffer = out_feat;
+  int cid = 0;
+  float row_val = 0;
+  float edge_val = 0;
+
   if (ptr < hb)
   {
-    int cid = col_ind[ptr];
-    float row_val = attn_row[rh_id];
-    float edge_val = row_val + attn_col[cid * h + hid];
+    cid = col_ind[ptr];
+    row_val = attn_row[rh_id];
+    edge_val = row_val + attn_col[cid * h + hid];
     edge_val = LeakyRelu(edge_val, negative_slope);
-
     weightMax = edge_val;
-    for (int stride = 16; stride > 0; stride >>= 1)
-    {
-      float tmp = __shfl_xor_sync(0xffffffff, weightMax, stride, 32);
-      weightMax = MAX(tmp, weightMax);
-    }
-    if (threadIdx.x == 0)
-    {
-      atomicMaxFloat(&edge_max[rh_id], weightMax);
-    }
-    __threadfence();
-    weightMax = edge_max[rh_id];
+  }
 
+  for (int stride = 16; stride > 0; stride >>= 1)
+  {
+    float tmp = __shfl_xor_sync(0xffffffff, weightMax, stride, 32);
+    weightMax = MAX(tmp, weightMax);
+  }
+  if (threadIdx.x == 0)
+  {
+    atomicMaxFloat(&edge_max[rh_id], weightMax);
+  }
+  __threadfence();
+  weightMax = edge_max[rh_id];
+
+  if (ptr < hb)
+  {
     edge_val = exp(edge_val - weightMax);
-    // printf("%.3f ", edge_val);
+  }
+  else
+  {
+    edge_val = 0;
+  }
 
-    expAll = edge_val;
+  expAll = edge_val;
+  for (int stride = 16; stride > 0; stride >>= 1)
+  {
+    float tmp = __shfl_xor_sync(0xffffffff, expAll, stride, 32);
+    expAll += tmp;
+  }
+
+  if (threadIdx.x == 0)
+  {
+    atomicAdd(&edge_sum[rh_id], expAll);
+  }
+  __threadfence();
+  expAll = edge_sum[rh_id];
+
+  edge_val = edge_val / expAll;
+
+  for (int fid = 0; fid < f; fid++)
+  {
+    partial_sum = in_feat[cid * h * f + hid * f + fid] * edge_val;
     for (int stride = 16; stride > 0; stride >>= 1)
     {
-      float tmp = __shfl_xor_sync(0xffffffff, expAll, stride, 32);
-      expAll += tmp;
+      float tmp = __shfl_xor_sync(0xffffffff, partial_sum, stride, 32);
+      partial_sum += tmp;
     }
-
     if (threadIdx.x == 0)
-    {
-      atomicAdd(&edge_sum[rh_id], expAll);
-      // printf("%.3f ", expAll);
-    }
-    __threadfence();
-    expAll = edge_sum[rh_id];
+      atomicAdd(&out_feat[rid * h * f + hid * f + fid], partial_sum);
+  }
+}
 
-    edge_val = edge_val / expAll;
+__global__ void fused_forward_kernel_tb_sr(
+    int m, int nnz, int h, int f,
+    const float *attn_row, const float *attn_col,
+    const int *row_ptr, const int *col_ind,
+    const float *in_feat,
+    const float negative_slope,
+    const int *tile_scheduler,
+    float *edge_max, float *edge_sum,
+    float *out_feat)
+{
+  int tile_id = blockIdx.x;
+  int rid = tile_scheduler[tile_id * 2];
+  int tile_id_in_row = tile_scheduler[tile_id * 2 + 1];
+  int hid = threadIdx.y;
+  int lb = row_ptr[rid];
+  int hb = row_ptr[rid + 1];
+  int offset = lb + (tile_id_in_row << 5);
+  int ptr = lb + threadIdx.x + (tile_id_in_row << 5);
+  int rh_id = rid * h + hid;
+  int hf = h * f;
 
-    for (int fid = 0; fid < f; fid++)
+  extern __shared__ float val_shared[];
+  float *edge_val_shared = &val_shared[32 * hid];
+  int *cid_shared = (int *)&val_shared[32 * h];
+
+  float weightMax = -1e38;
+  float expAll = 0;
+  float partial_sum = 0;
+  int cid = 0;
+  float row_val = 0;
+  float edge_val = 0;
+
+  if (ptr < hb)
+  {
+    cid = col_ind[ptr];
+    row_val = attn_row[rh_id];
+    edge_val = row_val + attn_col[cid * h + hid];
+    edge_val = LeakyRelu(edge_val, negative_slope);
+    weightMax = edge_val;
+  }
+
+  for (int stride = 16; stride > 0; stride >>= 1)
+  {
+    float tmp = __shfl_xor_sync(0xffffffff, weightMax, stride, 32);
+    weightMax = MAX(tmp, weightMax);
+  }
+  if (threadIdx.x == 0)
+  {
+    atomicMaxFloat(&edge_max[rh_id], weightMax);
+  }
+  __threadfence();
+  weightMax = edge_max[rh_id];
+
+  if (ptr < hb)
+  {
+    edge_val = exp(edge_val - weightMax);
+  }
+  else
+  {
+    edge_val = 0;
+  }
+
+  expAll = edge_val;
+  for (int stride = 16; stride > 0; stride >>= 1)
+  {
+    float tmp = __shfl_xor_sync(0xffffffff, expAll, stride, 32);
+    expAll += tmp;
+  }
+
+  if (threadIdx.x == 0)
+  {
+    atomicAdd(&edge_sum[rh_id], expAll);
+  }
+  __threadfence();
+  expAll = edge_sum[rh_id];
+
+  edge_val = edge_val / expAll;
+  edge_val_shared[threadIdx.x] = edge_val;
+  if (hid == 0)
+    cid_shared[threadIdx.x] = cid;
+  __syncthreads();
+  for (int fid = threadIdx.x; fid < f; fid += 32)
+  {
+    int offset_f = hid * f + fid;
+    partial_sum = 0;
+    for (int jj = 0; jj < 32 && jj + offset < hb; jj++)
     {
-      partial_sum = 0;
-      for (int stride = 16; stride > 0; stride >>= 1)
-      {
-        float product = in_feat[cid * h * f + hid * f + fid] * edge_val;
-        float tmp = __shfl_xor_sync(0xffffffff, product, stride, 32);
-        partial_sum += tmp;
-      }
-      if (threadIdx.x == 0)
-        atomicAdd(&out_feat[rid * h * f + hid * f + fid], partial_sum);
+      int cid = cid_shared[jj];
+      // int cid=col_ind[jj+offset];
+      // if(cid_shared[jj]>=m){
+      //   printf("%d",cid_shared[jj]);
+      // }
+      partial_sum += edge_val_shared[jj] * in_feat[cid * hf + offset_f];
     }
+
+    atomicAdd(&out_feat[rid * hf + offset_f], partial_sum);
   }
 }
 
@@ -881,14 +986,20 @@ gat_forward_tb_cuda(
   const auto f = in_feat.size(2);
   const auto tile_num = tile_scheduler.size(0);
   auto devid = attn_row.device().index();
-  auto options =
-      torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA, devid);
+  auto options = torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA, devid);
   auto out_feat = torch::zeros({m, h, f}, options);
-  // auto edge_relu_csr = torch::empty({nnz, h}, options);
-  // auto edge_softmax_csr = torch::empty({nnz, h}, options);
   auto edge_max = torch::zeros({m, h}, options);
   auto edge_sum = torch::zeros({m, h}, options);
-  fused_forward_kernel_tb<<<dim3(tile_num, 1, 1), dim3(32, h, 1)>>>(
+  // fused_forward_kernel_tb_pr<<<dim3(tile_num, 1, 1), dim3(32, h, 1)>>>(
+  //     m, nnz, h, f,
+  //     attn_row.data_ptr<float>(), attn_col.data_ptr<float>(),
+  //     row_ptr.data_ptr<int>(), col_ind.data_ptr<int>(),
+  //     in_feat.data_ptr<float>(),
+  //     negative_slope,
+  //     tile_scheduler.data_ptr<int>(),
+  //     edge_max.data_ptr<float>(), edge_sum.data_ptr<float>(),
+  //     out_feat.data_ptr<float>());
+  fused_forward_kernel_tb_sr<<<dim3(tile_num, 1, 1), dim3(32, h, 1), 32 * h * sizeof(float)>>>(
       m, nnz, h, f,
       attn_row.data_ptr<float>(), attn_col.data_ptr<float>(),
       row_ptr.data_ptr<int>(), col_ind.data_ptr<int>(),
