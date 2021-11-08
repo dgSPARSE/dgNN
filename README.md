@@ -85,3 +85,15 @@ If you use our dgNN project in your research, please cite the following bib:
     primaryClass={cs.LG}
 }
 ```
+
+This project also implements algorithms from [GNN-computing](https://github.com/xxcclong/GNN-Computing). If you use our dgNN project in your research, please also cite the following bib:
+
+```bibtex
+@inproceedings{huang2021understanding,
+  title={Understanding and bridging the gaps in current GNN performance optimizations},
+  author={Huang, Kezhao and Zhai, Jidong and Zheng, Zhen and Yi, Youngmin and Shen, Xipeng},
+  booktitle={Proceedings of the 26th ACM SIGPLAN Symposium on Principles and Practice of Parallel Programming},
+  pages={119--132},
+  year={2021}
+}
+```
