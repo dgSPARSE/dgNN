@@ -90,7 +90,8 @@ def main(args):
     row_ptr=row_ptr.to(args.gpu).int()
     col_ind=col_ind.to(args.gpu).int()
     tile_scheduler=tile_scheduler.to(args.gpu).int()
-    print(tile_scheduler)
+    print(torch.var(torch.bincount(tile_scheduler[:,1]).float()))
+    # exit()
 
 
     col_ptr,row_ind=preprocess_csr2csc(row_ptr,col_ind,args)
@@ -141,7 +142,7 @@ def main(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='GAT')
-    parser.add_argument("--in_feats",type=int,default=64)
+    parser.add_argument("--in_feats",type=int,default=512)
     parser.add_argument("--out_feats",type=int,default=6)
     parser.add_argument("--dataset",type=str,default="reddit")
     parser.add_argument("--gpu", type=int, default=0,
