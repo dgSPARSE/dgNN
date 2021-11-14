@@ -29,17 +29,17 @@ class GAT(nn.Module):
         self.activation = activation
         # input projection (no residual)
         self.gat_layers.append(GATConv(
-            in_dim, num_hidden, heads[0],
-            negative_slope))
+            in_dim, num_hidden, heads[0],feat_drop,attn_drop,
+            negative_slope,residual,bias=False))
         # hidden layers
         for l in range(1, num_layers):
             # due to multi-head, the in_dim = num_hidden * num_heads
             self.gat_layers.append(GATConv(
-                num_hidden * heads[l-1], num_hidden, heads[l],
-                negative_slope))
+                num_hidden * heads[l-1], num_hidden, heads[l],feat_drop,attn_drop,
+                negative_slope,residual))
         # output projection
         self.gat_layers.append(GATConv(
-            num_hidden * heads[-2], num_classes, heads[-1],
+            num_hidden * heads[-2], num_classes, heads[-1],feat_drop,attn_drop,
            negative_slope))
 
     def forward(self,row_ptr,col_ind,col_ptr,row_ind,inputs):

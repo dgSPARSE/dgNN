@@ -6,12 +6,12 @@
 std::vector<torch::Tensor>
 gat_forward_cuda(torch::Tensor attn_row, torch::Tensor attn_col,
                  torch::Tensor row_ptr, torch::Tensor col_ind,
-                 float negative_slope, torch::Tensor in_feat);
+                 float negative_slope, torch::Tensor in_feat, float attn_drop);
 
 std::vector<torch::Tensor>
 gat_forward(torch::Tensor attn_row, torch::Tensor attn_col,
             torch::Tensor row_ptr, torch::Tensor col_ind, float negative_slope,
-            torch::Tensor in_feat)
+            torch::Tensor in_feat, float attn_drop)
 {
   assert(attn_row.device().type() == torch::kCUDA);
   assert(attn_col.device().type() == torch::kCUDA);
@@ -29,7 +29,7 @@ gat_forward(torch::Tensor attn_row, torch::Tensor attn_col,
   assert(col_ind.dtype() == torch::kInt32);
   assert(in_feat.dtype() == torch::kFloat32);
   return gat_forward_cuda(attn_row, attn_col, row_ptr, col_ind, negative_slope,
-                          in_feat);
+                          in_feat, attn_drop);
 }
 
 std::vector<torch::Tensor>
@@ -71,22 +71,24 @@ gat_forward_tb(
 }
 
 std::vector<torch::Tensor> gat_backward_cuda(
-    float negative_slope, torch::Tensor row_ptr, torch::Tensor col_ind,
+    float negative_slope, float attn_drop,
+    torch::Tensor row_ptr, torch::Tensor col_ind,
     torch::Tensor col_ptr, torch::Tensor row_ind,
-    // torch::Tensor permute,
-
-    torch::Tensor edge_max, torch::Tensor edge_sum, torch::Tensor in_feat,
+    torch::Tensor edge_max, torch::Tensor edge_sum, torch::Tensor edge_mask,
+    torch::Tensor in_feat,
     torch::Tensor attn_row, torch::Tensor attn_col, torch::Tensor grad);
 
 std::vector<torch::Tensor>
-gat_backward(float negative_slope, torch::Tensor row_ptr, torch::Tensor col_ind,
-             torch::Tensor col_ptr, torch::Tensor row_ind,
-             // torch::Tensor permute,
-             // torch::Tensor edge_softmax_csr,
-             // torch::Tensor edge_relu_csr,
-             torch::Tensor edge_max, torch::Tensor edge_sum,
-             torch::Tensor in_feat, torch::Tensor attn_row,
-             torch::Tensor attn_col, torch::Tensor grad)
+gat_backward(
+    float negative_slope, float attn_drop,
+    torch::Tensor row_ptr, torch::Tensor col_ind,
+    torch::Tensor col_ptr, torch::Tensor row_ind,
+    // torch::Tensor permute,
+    // torch::Tensor edge_softmax_csr,
+    // torch::Tensor edge_relu_csr,
+    torch::Tensor edge_max, torch::Tensor edge_sum, torch::Tensor edge_mask,
+    torch::Tensor in_feat, torch::Tensor attn_row,
+    torch::Tensor attn_col, torch::Tensor grad)
 {
   assert(row_ptr.device().type() == torch::kCUDA);
   assert(col_ind.device().type() == torch::kCUDA);
@@ -98,6 +100,7 @@ gat_backward(float negative_slope, torch::Tensor row_ptr, torch::Tensor col_ind,
   // assert(edge_relu_csr.device().type() == torch::kCUDA);
   assert(edge_max.device().type() == torch::kCUDA);
   assert(edge_sum.device().type() == torch::kCUDA);
+  assert(edge_mask.device().type() == torch::kCUDA);
   assert(in_feat.device().type() == torch::kCUDA);
   assert(attn_row.device().type() == torch::kCUDA);
   assert(attn_col.device().type() == torch::kCUDA);
@@ -113,6 +116,7 @@ gat_backward(float negative_slope, torch::Tensor row_ptr, torch::Tensor col_ind,
   // assert(edge_relu_csr.is_contiguous());
   assert(edge_max.is_contiguous());
   assert(edge_sum.is_contiguous());
+  assert(edge_mask.is_contiguous());
   assert(in_feat.is_contiguous());
   assert(attn_row.is_contiguous());
   assert(attn_col.is_contiguous());
@@ -128,14 +132,15 @@ gat_backward(float negative_slope, torch::Tensor row_ptr, torch::Tensor col_ind,
   // assert(edge_relu_csr.dtype() == torch::kFloat32);
   assert(edge_max.dtype() == torch::kFloat32);
   assert(edge_sum.dtype() == torch::kFloat32);
+  assert(edge_mask.dtype() == torch::kFloat32);
   assert(in_feat.dtype() == torch::kFloat32);
   assert(attn_row.dtype() == torch::kFloat32);
   assert(attn_col.dtype() == torch::kFloat32);
   assert(grad.dtype() == torch::kFloat32);
   // printf("gat backward\n");
 
-  return gat_backward_cuda(negative_slope, row_ptr, col_ind, col_ptr, row_ind,
-                           edge_max, edge_sum, in_feat, attn_row, attn_col,
+  return gat_backward_cuda(negative_slope, attn_drop, row_ptr, col_ind, col_ptr, row_ind,
+                           edge_max, edge_sum, edge_mask, in_feat, attn_row, attn_col,
                            grad);
 }
 

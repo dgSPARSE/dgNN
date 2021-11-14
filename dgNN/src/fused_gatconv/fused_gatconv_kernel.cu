@@ -2,16 +2,34 @@
 #include <cuda.h>
 #include <torch/types.h>
 
+#include <unistd.h>
+#include <stdio.h>
+
+/* we need these includes for CUDA's random number stuff */
+#include <curand.h>
+#include <curand_kernel.h>
+
 // #define MAX(a, b) ((a < b) ? (b) : (a))
 #define LeakyRelu(x, negative_slope) ((x > 0) ? (x) : ((x)*negative_slope))
 using namespace std;
 
-__global__ void fused_forward_kernel(int m, int nnz, int h, int f,
+#define CURAND_CALL(x)                                \
+  do                                                  \
+  {                                                   \
+    if ((x) != CURAND_STATUS_SUCCESS)                 \
+    {                                                 \
+      printf("Error at %s:%d\n", __FILE__, __LINE__); \
+      return EXIT_FAILURE;                            \
+    }                                                 \
+  } while (0)
+
+__global__ void fused_forward_kernel(int m, int nnz, int h, int f, float attn_drop,
                                      const float *attn_row,
                                      const float *attn_col, const int *row_ptr,
                                      const int *col_ind, const float *in_feat,
                                      const float negative_slope,
                                      float *edge_max, float *edge_sum,
+                                     const float *edge_mask,
                                      float *out_feat)
 {
   int rid = blockIdx.x;
@@ -82,20 +100,19 @@ __global__ void fused_forward_kernel(int m, int nnz, int h, int f,
     for (int j = 0; j < loop; j++)
     {
       int pid = ptr + (j << 5);
-      if (pid < hb)
+      float weight = 0;
+      int cid = 0;
+      if (pid < hb && edge_mask[pid * h + hid] > attn_drop)
+      // if (pid < hb)
       {
-        int cid = col_ind[pid];
+        cid = col_ind[pid];
         float attn_col_val = attn_col[cid * h + hid];
-        float weight = attn_row_val + attn_col_val;
+        weight = attn_row_val + attn_col_val;
         weight = LeakyRelu(weight, negative_slope);
         weight = exp(weight - weightMax) / expAll;
-        attn_val_sh[threadIdx.x] = weight;
-        cid_sh[threadIdx.x] = cid;
       }
-      // else
-      // {
-      //     attn_val_sh[32 * hid + threadIdx.x] = 0;
-      // }
+      attn_val_sh[threadIdx.x] = weight / (1.0 - attn_drop);
+      cid_sh[threadIdx.x] = cid;
       __syncwarp();
       int jj = lb + (j << 5);
       for (int kk = 0; kk < 32 && jj + kk < hb; kk++)
@@ -213,9 +230,9 @@ __global__ void fused_forward_kernel_small_f(
 }
 
 __global__ void fused_forward_kernel_small_f_sm(
-    int m, int nnz, int h, int f, const float *attn_row, const float *attn_col,
+    int m, int nnz, int h, int f, float attn_drop, const float *attn_row, const float *attn_col,
     const int *row_ptr, const int *col_ind, const float *in_feat,
-    const float negative_slope, float *edge_max, float *edge_sum,
+    const float negative_slope, float *edge_max, float *edge_sum, float *edge_mask,
     float *out_feat)
 {
   int rid = blockIdx.x;
@@ -301,30 +318,25 @@ __global__ void fused_forward_kernel_small_f_sm(
     {
       int pid = ptr + (j << 5);
       int edge_id = threadIdx.x + (j << 5);
+      float weight = 0;
 
-      if (pid < hb)
+      if (pid < hb && edge_mask[pid * h + hid] > attn_drop)
       {
         int cid = col_ind[pid];
-        float weight;
         if (edge_id < 512)
         {
           weight = edge_val_sh[edge_id * h + hid];
         }
         else
         {
-
           float attn_col_val = attn_col[cid * h + hid];
           weight = attn_row_val + attn_col_val;
           weight = LeakyRelu(weight, negative_slope);
         }
-        weight = exp(weight - weightMax) / expAll;
-        attn_val_sh[32 * hid + threadIdx.x] = weight;
+        weight = exp(weight - weightMax) / expAll / (1 - attn_drop);
         cid_sh[threadIdx.x] = cid;
       }
-      // else
-      // {
-      //     attn_val_sh[32 * hid + threadIdx.x] = 0;
-      // }
+      attn_val_sh[32 * hid + threadIdx.x] = weight;
       __syncwarp();
       int jj = lb + (j << 5);
       for (int kk = 0; kk < 32 && jj + kk < hb; kk++)
@@ -367,33 +379,36 @@ __global__ void mhspmm_kernel(int m, int nnz, int h, int f, const int *row_ptr,
   }
 }
 
-void gat_forward(int m, int nnz, int h, int f, const float *attn_row,
-                 const float *attn_col, const int *row_ptr, const int *col_ind,
-                 float negative_slope, float *edge_max, float *edge_sum,
+void gat_forward(int m, int nnz, int h, int f, float attn_drop,
+                 const float *attn_row, const float *attn_col,
+                 const int *row_ptr, const int *col_ind, float negative_slope,
+                 float *edge_max, float *edge_sum, float *edge_mask,
                  const float *in_feat, float *out_feat)
 {
+  curandGenerator_t gen;
+  (curandCreateGenerator(&gen, CURAND_RNG_PSEUDO_DEFAULT));
+  (curandSetGeneratorOffset(gen, time(0)));
+  (curandGenerateUniform(gen, edge_mask, nnz * h));
   if (f > 64)
+  {
     fused_forward_kernel<<<dim3(m, h, 1), dim3(32, (f + 31) / 32, 1),
                            32 * (sizeof(float) + sizeof(int))>>>(
-        m, nnz, h, f, attn_row, attn_col, row_ptr, col_ind, in_feat,
-        negative_slope, edge_max, edge_sum, out_feat);
+        m, nnz, h, f, attn_drop, attn_row, attn_col, row_ptr, col_ind, in_feat,
+        negative_slope, edge_max, edge_sum, edge_mask, out_feat);
+  }
   else
   {
-    // fused_forward_kernel_small_f<<<dim3(m, 1, 1), dim3(32, h, 1),
-    //                                32 * h * sizeof(float)>>>(
-    //     m, nnz, h, f, attn_row, attn_col, row_ptr, col_ind, in_feat,
-    //     negative_slope, edge_max, edge_sum, out_feat);
     fused_forward_kernel_small_f_sm<<<dim3(m, 1, 1), dim3(32, h, 1),
                                       (32 + 512) * h * sizeof(float) + 32 * sizeof(float)>>>(
-        m, nnz, h, f, attn_row, attn_col, row_ptr, col_ind, in_feat,
-        negative_slope, edge_max, edge_sum, out_feat);
+        m, nnz, h, f, attn_drop, attn_row, attn_col, row_ptr, col_ind, in_feat,
+        negative_slope, edge_max, edge_sum, edge_mask, out_feat);
   }
 }
 
 std::vector<torch::Tensor>
 gat_forward_cuda(torch::Tensor attn_row, torch::Tensor attn_col,
                  torch::Tensor row_ptr, torch::Tensor col_ind,
-                 float negative_slope, torch::Tensor in_feat)
+                 float negative_slope, torch::Tensor in_feat, float attn_drop)
 {
   const auto m = row_ptr.size(0) - 1;
   const auto nnz = col_ind.size(0);
@@ -407,20 +422,20 @@ gat_forward_cuda(torch::Tensor attn_row, torch::Tensor attn_col,
   // auto edge_softmax_csr = torch::empty({nnz, h}, options);
   auto edge_max = torch::empty({m, h}, options);
   auto edge_sum = torch::empty({m, h}, options);
-  gat_forward(m, nnz, h, f, attn_row.data_ptr<float>(),
-              attn_col.data_ptr<float>(), row_ptr.data_ptr<int>(),
-              col_ind.data_ptr<int>(), negative_slope,
-              edge_max.data_ptr<float>(), edge_sum.data_ptr<float>(),
+  auto edge_mask = torch::empty({nnz, h}, options);
+  gat_forward(m, nnz, h, f, attn_drop,
+              attn_row.data_ptr<float>(), attn_col.data_ptr<float>(),
+              row_ptr.data_ptr<int>(), col_ind.data_ptr<int>(), negative_slope,
+              edge_max.data_ptr<float>(), edge_sum.data_ptr<float>(), edge_mask.data_ptr<float>(),
               in_feat.data_ptr<float>(), out_feat.data_ptr<float>());
-  return {out_feat, edge_max, edge_sum};
+  return {out_feat, edge_max, edge_sum, edge_mask};
 }
 
 __global__ void mhspmm_backward_kernel(
-    int m, int nnz, int h, int f, float negative_slope, const int *row_ptr,
-    const int *col_ind, const int *col_ptr, const int *row_ind,
-    // const int *permute,
-    const float *edge_max, const float *edge_sum, const float *attn_row,
-    const float *attn_col, const float *grad_in, float *grad_out)
+    int m, int nnz, int h, int f, float negative_slope, float attn_drop,
+    const int *row_ptr, const int *col_ind, const int *col_ptr, const int *row_ind,
+    const float *edge_max, const float *edge_sum, const float *edge_mask,
+    const float *attn_row, const float *attn_col, const float *grad_in, float *grad_out)
 {
   int cid = blockIdx.x;
   int hid = blockIdx.y;
@@ -440,19 +455,22 @@ __global__ void mhspmm_backward_kernel(
     for (int j = 0; j < loop; j++)
     {
       int pid = ptr + (j << 5);
-      attn_val_sh[threadIdx.x] = 0;
-      if (pid < hb)
+
+      float weight = 0;
+      int rid = 0;
+      if (pid < hb && edge_mask[pid * h + hid] > attn_drop)
+      // if (pid < hb)
       {
-        int rid = row_ind[pid];
+        rid = row_ind[pid];
         float attn_row_val = attn_row[rid * h + hid];
-        float weight = attn_row_val + attn_col_val;
+        weight = attn_row_val + attn_col_val;
         weight = LeakyRelu(weight, negative_slope);
         float expAll = edge_sum[rid * h + hid];
         float weightMax = edge_max[rid * h + hid];
-        weight = exp(weight - weightMax) / expAll;
-        attn_val_sh[threadIdx.x] = weight;
-        rid_sh[threadIdx.x] = rid;
+        weight = exp(weight - weightMax) / expAll / (1 - attn_drop);
       }
+      attn_val_sh[threadIdx.x] = weight;
+      rid_sh[threadIdx.x] = rid;
       __syncwarp();
       int jj = lb + (j << 5);
       for (int kk = 0; kk < 32 && jj + kk < hb; kk++)
@@ -469,11 +487,10 @@ __global__ void mhspmm_backward_kernel(
 }
 
 __global__ void mhspmm_backward_kernel_small_f(
-    int m, int nnz, int h, int f, float negative_slope, const int *row_ptr,
-    const int *col_ind, const int *col_ptr, const int *row_ind,
-    // const int *permute,
-    const float *edge_max, const float *edge_sum, const float *attn_row,
-    const float *attn_col, const float *grad_in, float *grad_out)
+    int m, int nnz, int h, int f, float negative_slope, float attn_drop,
+    const int *row_ptr, const int *col_ind, const int *col_ptr, const int *row_ind,
+    const float *edge_max, const float *edge_sum, const float *edge_mask,
+    const float *attn_row, const float *attn_col, const float *grad_in, float *grad_out)
 {
   int cid = blockIdx.x;
   int hid = threadIdx.y;
@@ -493,7 +510,7 @@ __global__ void mhspmm_backward_kernel_small_f(
     {
       int pid = ptr + (j << 5);
       attn_val_sh[32 * hid + threadIdx.x] = 0;
-      if (pid < hb)
+      if (pid < hb && edge_mask[pid * h + hid] > attn_drop)
       {
         int rid = row_ind[pid];
         float attn_row_val = attn_row[rid * h + hid];
@@ -501,7 +518,7 @@ __global__ void mhspmm_backward_kernel_small_f(
         weight = LeakyRelu(weight, negative_slope);
         float expAll = edge_sum[rid * h + hid];
         float weightMax = edge_max[rid * h + hid];
-        weight = exp(weight - weightMax) / expAll;
+        weight = exp(weight - weightMax) / expAll / (1 - attn_drop);
         attn_val_sh[32 * hid + threadIdx.x] = weight;
       }
       __syncwarp();
@@ -609,10 +626,9 @@ __global__ void mhsddmm(const int v, const int f, const int h, const int nnz,
 }
 
 __global__ void fused_backward_kernel(
-    int m, int nnz, int h, int f, const int *row_ptr, const int *col_ind,
-    const float negative_slope, const float *edge_max, const float *edge_sum,
+    int m, int nnz, int h, int f, float attn_drop, const int *row_ptr, const int *col_ind,
+    const float negative_slope, const float *edge_max, const float *edge_sum, const float *edge_mask,
     const float *attn_row, const float *attn_col, const float *grad_edge_csr,
-    // float *grad_edge_for_gather_csr,
     float *grad_attn_row, float *grad_attn_col)
 {
   int rid = blockIdx.x;
@@ -627,7 +643,8 @@ __global__ void fused_backward_kernel(
   {
     int pid = ptr + (j << 5);
     float weight = 0;
-    if (pid < hb)
+    if (pid < hb && edge_mask[pid * h + hid] > attn_drop)
+    // if (pid < hb)
     {
       int cid = col_ind[pid];
       float attn_col_val = attn_col[cid * h + hid];
@@ -635,7 +652,7 @@ __global__ void fused_backward_kernel(
       // if (val_leaky != edge_relu_csr[pid * h + hid])
       //     printf("leakyrelu value error\n");
       float val_softmax =
-          exp(val_leaky - edge_max[rid * h + hid]) / edge_sum[rid * h + hid];
+          exp(val_leaky - edge_max[rid * h + hid]) / edge_sum[rid * h + hid] / (1 - attn_drop);
       // if (val_softmax != edge_softmax_csr[pid * h + hid])
       //     printf("softmax value error\n");
       weight = val_softmax * grad_edge_csr[pid * h + hid];
@@ -654,7 +671,8 @@ __global__ void fused_backward_kernel(
     int pid = ptr + (j << 5);
     float grad_out = 0;
     int eid = pid * h + hid;
-    if (pid < hb)
+    if (pid < hb && edge_mask[pid * h + hid] > attn_drop)
+    // if (pid < hb)
     {
       int cid = col_ind[pid];
       float attn_col_val = attn_col[cid * h + hid];
@@ -662,7 +680,7 @@ __global__ void fused_backward_kernel(
       // if (val_leaky != edge_relu_csr[pid * h + hid])
       //     printf("leakyrelu value error\n");
       float val_softmax =
-          exp(val_leaky - edge_max[rid * h + hid]) / edge_sum[rid * h + hid];
+          exp(val_leaky - edge_max[rid * h + hid]) / edge_sum[rid * h + hid] / (1.0 - attn_drop);
       // if (val_softmax != edge_softmax_csr[pid * h + hid])
       //     printf("softmax value error\n");
       grad_out = val_softmax * (grad_edge_csr[eid] - weightSum);
@@ -715,10 +733,11 @@ __global__ void gather_col(int m, int nnz, int h, int f, const int *col_ptr,
       printf("error,%f,%f\n", grad_attn_col[cid * h + hid], grad_col_sum);
 }
 
-void gat_backward(int m, int nnz, int h, int f, float negative_slope,
+void gat_backward(int m, int nnz, int h, int f, float negative_slope, float attn_drop,
                   int *row_ptr, int *col_ind, int *col_ptr, int *row_ind,
                   // int *permute,
-                  float *edge_max, float *edge_sum, float *in_feat,
+                  float *edge_max, float *edge_sum, float *edge_mask,
+                  float *in_feat,
                   float *attn_row, float *attn_col,
                   float *grad,          // input grad
                   float *grad_edge_csr, // temp grad
@@ -728,21 +747,23 @@ void gat_backward(int m, int nnz, int h, int f, float negative_slope,
                   float *grad_attn_col) // output grad
 {
   if (f > 64)
-    mhspmm_backward_kernel<<<dim3(m, h, 1), dim3(32, (f + 31) / 32, 1),
-                             32 * (sizeof(float) + sizeof(int))>>>(
-        m, nnz, h, f, negative_slope, row_ptr, col_ind, col_ptr, row_ind,
-        edge_max, edge_sum, attn_row, attn_col, grad, grad_feat);
+  {
+    mhspmm_backward_kernel<<<dim3(m, h, 1), dim3(32, (f + 31) / 32, 1), 32 * (sizeof(float) + sizeof(int))>>>(
+        m, nnz, h, f, negative_slope, attn_drop, row_ptr, col_ind, col_ptr, row_ind,
+        edge_max, edge_sum, edge_mask, attn_row, attn_col, grad, grad_feat);
+  }
   else
-    mhspmm_backward_kernel_small_f<<<dim3(m, 1, 1), dim3(32, h, 1),
-                                     32 * h * sizeof(float)>>>(
-        m, nnz, h, f, negative_slope, row_ptr, col_ind, col_ptr, row_ind,
-        edge_max, edge_sum, attn_row, attn_col, grad, grad_feat);
+  {
+    mhspmm_backward_kernel_small_f<<<dim3(m, 1, 1), dim3(32, h, 1), 32 * h * sizeof(float)>>>(
+        m, nnz, h, f, negative_slope, attn_drop, row_ptr, col_ind, col_ptr, row_ind,
+        edge_max, edge_sum, edge_mask, attn_row, attn_col, grad, grad_feat);
+  }
 
   mhsddmm<<<dim3(nnz / 16 + (nnz & 15), h, 1), dim3(32, 4, 1)>>>(
       m, f, h, nnz, row_ptr, col_ind, grad, in_feat, grad_edge_csr);
 
   fused_backward_kernel<<<dim3(m, 1, 1), dim3(32, h, 1)>>>(
-      m, nnz, h, f, row_ptr, col_ind, negative_slope, edge_max, edge_sum,
+      m, nnz, h, f, attn_drop, row_ptr, col_ind, negative_slope, edge_max, edge_sum, edge_mask,
       attn_row, attn_col, grad_edge_csr, grad_attn_row, grad_attn_col);
 
   // gather_col<<<dim3(m, 1, 1), dim3(32, h, 1)>>>(m, nnz, h, f, col_ptr,
@@ -750,10 +771,11 @@ void gat_backward(int m, int nnz, int h, int f, float negative_slope,
 }
 
 std::vector<torch::Tensor> gat_backward_cuda(
-    float negative_slope, torch::Tensor row_ptr, torch::Tensor col_ind,
+    float negative_slope, float attn_drop,
+    torch::Tensor row_ptr, torch::Tensor col_ind,
     torch::Tensor col_ptr, torch::Tensor row_ind,
-    // torch::Tensor permute,
-    torch::Tensor edge_max, torch::Tensor edge_sum, torch::Tensor in_feat,
+    torch::Tensor edge_max, torch::Tensor edge_sum, torch::Tensor edge_mask,
+    torch::Tensor in_feat,
     torch::Tensor attn_row, torch::Tensor attn_col, torch::Tensor grad)
 {
   const auto m = row_ptr.size(0) - 1;
@@ -769,10 +791,11 @@ std::vector<torch::Tensor> gat_backward_cuda(
   auto grad_attn_row = torch::empty({m, h}, options);
   auto grad_attn_col = torch::zeros({m, h}, options);
   // printf("gat backward cuda\n");
-  gat_backward(m, nnz, h, f, negative_slope, row_ptr.data_ptr<int>(),
-               col_ind.data_ptr<int>(), col_ptr.data_ptr<int>(),
-               row_ind.data_ptr<int>(), edge_max.data_ptr<float>(),
-               edge_sum.data_ptr<float>(), in_feat.data_ptr<float>(),
+  gat_backward(m, nnz, h, f, negative_slope, attn_drop,
+               row_ptr.data_ptr<int>(), col_ind.data_ptr<int>(),
+               col_ptr.data_ptr<int>(), row_ind.data_ptr<int>(),
+               edge_max.data_ptr<float>(), edge_sum.data_ptr<float>(), edge_mask.data_ptr<float>(),
+               in_feat.data_ptr<float>(),
                attn_row.data_ptr<float>(), attn_col.data_ptr<float>(),
                grad.data_ptr<float>(), grad_edge_csr.data_ptr<float>(),
                grad_feat.data_ptr<float>(), grad_attn_row.data_ptr<float>(),
@@ -955,7 +978,9 @@ __global__ void fused_forward_kernel_tb_sr(
   if (hid == 0)
     cid_shared[threadIdx.x] = cid;
   __syncthreads();
-  for (int fid = threadIdx.x; fid < f; fid += 32)
+  // for (int fid = threadIdx.x; fid < f; fid += 32)
+  int fid = blockIdx.y * 32 + threadIdx.x;
+  if (fid < f)
   {
     int offset_f = hid * f + fid;
     partial_sum = 0;
@@ -999,7 +1024,7 @@ gat_forward_tb_cuda(
   //     tile_scheduler.data_ptr<int>(),
   //     edge_max.data_ptr<float>(), edge_sum.data_ptr<float>(),
   //     out_feat.data_ptr<float>());
-  fused_forward_kernel_tb_sr<<<dim3(tile_num, 1, 1), dim3(32, h, 1), 32 * h * sizeof(float)>>>(
+  fused_forward_kernel_tb_sr<<<dim3(tile_num, (f + 31) / 32, 1), dim3(32, h, 1), 32 * h * sizeof(float)>>>(
       m, nnz, h, f,
       attn_row.data_ptr<float>(), attn_col.data_ptr<float>(),
       row_ptr.data_ptr<int>(), col_ind.data_ptr<int>(),
