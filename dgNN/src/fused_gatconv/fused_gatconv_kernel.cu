@@ -29,8 +29,8 @@ __global__ void fused_forward_kernel(int m, int nnz, int h, int f, float attn_dr
                                      const int *col_ind, const float *in_feat,
                                      const float negative_slope,
                                      float *edge_max, float *edge_sum,
-                                     const float *edge_mask,
-                                     float *out_feat)
+                                     int *edge_mask,
+                                     float *out_feat, unsigned long long seed)
 {
   int rid = blockIdx.x;
   int hid = blockIdx.y;
@@ -38,6 +38,8 @@ __global__ void fused_forward_kernel(int m, int nnz, int h, int f, float attn_dr
   int hb = row_ptr[rid + 1];
   int ptr = lb + threadIdx.x;
   int loop = (hb - lb + 31) / 32;
+  curandState state;
+  curand_init (seed, rid * hid, 0, &state);
   extern __shared__ float val_sh[];
   float *attn_val_sh = val_sh;
   int *cid_sh = (int *)&val_sh[32];
@@ -102,7 +104,9 @@ __global__ void fused_forward_kernel(int m, int nnz, int h, int f, float attn_dr
       int pid = ptr + (j << 5);
       float weight = 0;
       int cid = 0;
-      if (pid < hb && edge_mask[pid * h + hid] > attn_drop)
+      int mask = curand_uniform(&state) > attn_drop ? 1 : 0;
+      edge_mask[pid * h + hid] = mask;
+      if (pid < hb && mask)
       // if (pid < hb)
       {
         cid = col_ind[pid];
@@ -131,8 +135,8 @@ __global__ void fused_forward_kernel(int m, int nnz, int h, int f, float attn_dr
 __global__ void fused_forward_kernel_small_f(
     int m, int nnz, int h, int f, const float *attn_row, const float *attn_col,
     const int *row_ptr, const int *col_ind, const float *in_feat,
-    const float negative_slope, float *edge_max, float *edge_sum,
-    float *out_feat)
+    const float negative_slope, int *edge_max, float *edge_sum,
+    float *out_feat, unsigned long long seed)
 {
   int rid = blockIdx.x;
   int hid = threadIdx.y;
@@ -232,8 +236,8 @@ __global__ void fused_forward_kernel_small_f(
 __global__ void fused_forward_kernel_small_f_sm(
     int m, int nnz, int h, int f, float attn_drop, const float *attn_row, const float *attn_col,
     const int *row_ptr, const int *col_ind, const float *in_feat,
-    const float negative_slope, float *edge_max, float *edge_sum, float *edge_mask,
-    float *out_feat)
+    const float negative_slope, float *edge_max, float *edge_sum, int *edge_mask,
+    float *out_feat, unsigned long long seed)
 {
   int rid = blockIdx.x;
   int hid = threadIdx.y;
@@ -241,6 +245,8 @@ __global__ void fused_forward_kernel_small_f_sm(
   int hb = row_ptr[rid + 1];
   int ptr = lb + threadIdx.x;
   int loop = (hb - lb + 31) / 32;
+  curandState state;
+  curand_init (seed, rid * hid, 0, &state);
   extern __shared__ float edge_val_sh[];
   float *attn_val_sh = &edge_val_sh[512 * h];
   float *cid_sh = &attn_val_sh[32 * h];
@@ -319,8 +325,9 @@ __global__ void fused_forward_kernel_small_f_sm(
       int pid = ptr + (j << 5);
       int edge_id = threadIdx.x + (j << 5);
       float weight = 0;
-
-      if (pid < hb && edge_mask[pid * h + hid] > attn_drop)
+      int mask = curand_uniform(&state) > attn_drop ? 1 : 0;
+      edge_mask[pid * h + hid] = mask;
+      if (pid < hb && mask)
       {
         int cid = col_ind[pid];
         if (edge_id < 512)
@@ -382,26 +389,23 @@ __global__ void mhspmm_kernel(int m, int nnz, int h, int f, const int *row_ptr,
 void gat_forward(int m, int nnz, int h, int f, float attn_drop,
                  const float *attn_row, const float *attn_col,
                  const int *row_ptr, const int *col_ind, float negative_slope,
-                 float *edge_max, float *edge_sum, float *edge_mask,
+                 float *edge_max, float *edge_sum, int *edge_mask,
                  const float *in_feat, float *out_feat)
 {
-  curandGenerator_t gen;
-  (curandCreateGenerator(&gen, CURAND_RNG_PSEUDO_DEFAULT));
-  (curandSetGeneratorOffset(gen, time(0)));
-  (curandGenerateUniform(gen, edge_mask, nnz * h));
+  int seed = time(0);
   if (f > 64)
   {
     fused_forward_kernel<<<dim3(m, h, 1), dim3(32, (f + 31) / 32, 1),
                            32 * (sizeof(float) + sizeof(int))>>>(
         m, nnz, h, f, attn_drop, attn_row, attn_col, row_ptr, col_ind, in_feat,
-        negative_slope, edge_max, edge_sum, edge_mask, out_feat);
+        negative_slope, edge_max, edge_sum, edge_mask, out_feat, seed);
   }
   else
   {
     fused_forward_kernel_small_f_sm<<<dim3(m, 1, 1), dim3(32, h, 1),
                                       (32 + 512) * h * sizeof(float) + 32 * sizeof(float)>>>(
         m, nnz, h, f, attn_drop, attn_row, attn_col, row_ptr, col_ind, in_feat,
-        negative_slope, edge_max, edge_sum, edge_mask, out_feat);
+        negative_slope, edge_max, edge_sum, edge_mask, out_feat, seed);
   }
 }
 
@@ -422,11 +426,13 @@ gat_forward_cuda(torch::Tensor attn_row, torch::Tensor attn_col,
   // auto edge_softmax_csr = torch::empty({nnz, h}, options);
   auto edge_max = torch::empty({m, h}, options);
   auto edge_sum = torch::empty({m, h}, options);
-  auto edge_mask = torch::empty({nnz, h}, options);
+  auto optionsI =
+  torch::TensorOptions().dtype(torch::kInt32).device(torch::kCUDA, devid);
+  auto edge_mask = torch::empty({nnz, h}, optionsI);
   gat_forward(m, nnz, h, f, attn_drop,
               attn_row.data_ptr<float>(), attn_col.data_ptr<float>(),
               row_ptr.data_ptr<int>(), col_ind.data_ptr<int>(), negative_slope,
-              edge_max.data_ptr<float>(), edge_sum.data_ptr<float>(), edge_mask.data_ptr<float>(),
+              edge_max.data_ptr<float>(), edge_sum.data_ptr<float>(), edge_mask.data_ptr<int>(),
               in_feat.data_ptr<float>(), out_feat.data_ptr<float>());
   return {out_feat, edge_max, edge_sum, edge_mask};
 }
@@ -434,7 +440,7 @@ gat_forward_cuda(torch::Tensor attn_row, torch::Tensor attn_col,
 __global__ void mhspmm_backward_kernel(
     int m, int nnz, int h, int f, float negative_slope, float attn_drop,
     const int *row_ptr, const int *col_ind, const int *col_ptr, const int *row_ind,
-    const float *edge_max, const float *edge_sum, const float *edge_mask,
+    const float *edge_max, const float *edge_sum, const int *edge_mask,
     const float *attn_row, const float *attn_col, const float *grad_in, float *grad_out)
 {
   int cid = blockIdx.x;
@@ -458,7 +464,8 @@ __global__ void mhspmm_backward_kernel(
 
       float weight = 0;
       int rid = 0;
-      if (pid < hb && edge_mask[pid * h + hid] > attn_drop)
+      int mask = edge_mask[pid * h + hid];
+      if (pid < hb && mask)
       // if (pid < hb)
       {
         rid = row_ind[pid];
@@ -489,7 +496,7 @@ __global__ void mhspmm_backward_kernel(
 __global__ void mhspmm_backward_kernel_small_f(
     int m, int nnz, int h, int f, float negative_slope, float attn_drop,
     const int *row_ptr, const int *col_ind, const int *col_ptr, const int *row_ind,
-    const float *edge_max, const float *edge_sum, const float *edge_mask,
+    const float *edge_max, const float *edge_sum, const int *edge_mask,
     const float *attn_row, const float *attn_col, const float *grad_in, float *grad_out)
 {
   int cid = blockIdx.x;
@@ -510,7 +517,8 @@ __global__ void mhspmm_backward_kernel_small_f(
     {
       int pid = ptr + (j << 5);
       attn_val_sh[32 * hid + threadIdx.x] = 0;
-      if (pid < hb && edge_mask[pid * h + hid] > attn_drop)
+      int mask = edge_mask[pid * h + hid];
+      if (pid < hb && mask)
       {
         int rid = row_ind[pid];
         float attn_row_val = attn_row[rid * h + hid];
@@ -627,7 +635,7 @@ __global__ void mhsddmm(const int v, const int f, const int h, const int nnz,
 
 __global__ void fused_backward_kernel(
     int m, int nnz, int h, int f, float attn_drop, const int *row_ptr, const int *col_ind,
-    const float negative_slope, const float *edge_max, const float *edge_sum, const float *edge_mask,
+    const float negative_slope, const float *edge_max, const float *edge_sum, const int *edge_mask,
     const float *attn_row, const float *attn_col, const float *grad_edge_csr,
     float *grad_attn_row, float *grad_attn_col)
 {
@@ -643,7 +651,8 @@ __global__ void fused_backward_kernel(
   {
     int pid = ptr + (j << 5);
     float weight = 0;
-    if (pid < hb && edge_mask[pid * h + hid] > attn_drop)
+    int mask = edge_mask[pid * h + hid];
+    if (pid < hb && mask)
     // if (pid < hb)
     {
       int cid = col_ind[pid];
@@ -671,7 +680,8 @@ __global__ void fused_backward_kernel(
     int pid = ptr + (j << 5);
     float grad_out = 0;
     int eid = pid * h + hid;
-    if (pid < hb && edge_mask[pid * h + hid] > attn_drop)
+    int mask = edge_mask[pid * h + hid];
+    if (pid < hb && mask)
     // if (pid < hb)
     {
       int cid = col_ind[pid];
@@ -736,7 +746,7 @@ __global__ void gather_col(int m, int nnz, int h, int f, const int *col_ptr,
 void gat_backward(int m, int nnz, int h, int f, float negative_slope, float attn_drop,
                   int *row_ptr, int *col_ind, int *col_ptr, int *row_ind,
                   // int *permute,
-                  float *edge_max, float *edge_sum, float *edge_mask,
+                  float *edge_max, float *edge_sum, int *edge_mask,
                   float *in_feat,
                   float *attn_row, float *attn_col,
                   float *grad,          // input grad
@@ -746,6 +756,7 @@ void gat_backward(int m, int nnz, int h, int f, float negative_slope, float attn
                   float *grad_attn_row, // output grad
                   float *grad_attn_col) // output grad
 {
+  int seed = time(0);
   if (f > 64)
   {
     mhspmm_backward_kernel<<<dim3(m, h, 1), dim3(32, (f + 31) / 32, 1), 32 * (sizeof(float) + sizeof(int))>>>(
@@ -794,7 +805,7 @@ std::vector<torch::Tensor> gat_backward_cuda(
   gat_backward(m, nnz, h, f, negative_slope, attn_drop,
                row_ptr.data_ptr<int>(), col_ind.data_ptr<int>(),
                col_ptr.data_ptr<int>(), row_ind.data_ptr<int>(),
-               edge_max.data_ptr<float>(), edge_sum.data_ptr<float>(), edge_mask.data_ptr<float>(),
+               edge_max.data_ptr<float>(), edge_sum.data_ptr<float>(), edge_mask.data_ptr<int>(),
                in_feat.data_ptr<float>(),
                attn_row.data_ptr<float>(), attn_col.data_ptr<float>(),
                grad.data_ptr<float>(), grad_edge_csr.data_ptr<float>(),
