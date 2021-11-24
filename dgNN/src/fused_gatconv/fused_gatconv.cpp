@@ -32,6 +32,37 @@ gat_forward(torch::Tensor attn_row, torch::Tensor attn_col,
                           in_feat, attn_drop);
 }
 
+torch::Tensor gat_inference_cuda(
+    torch::Tensor attn_row, torch::Tensor attn_col,
+    torch::Tensor row_ptr, torch::Tensor col_ind,
+    float negative_slope, torch::Tensor in_feat);
+
+torch::Tensor gat_inference(
+    torch::Tensor attn_row, torch::Tensor attn_col,
+    torch::Tensor row_ptr, torch::Tensor col_ind,
+    float negative_slope, torch::Tensor in_feat)
+
+{
+  assert(attn_row.device().type() == torch::kCUDA);
+  assert(attn_col.device().type() == torch::kCUDA);
+  assert(row_ptr.device().type() == torch::kCUDA);
+  assert(col_ind.device().type() == torch::kCUDA);
+  assert(in_feat.device().type() == torch::kCUDA);
+  assert(attn_row.is_contiguous());
+  assert(attn_col.is_contiguous());
+  assert(row_ptr.is_contiguous());
+  assert(col_ind.is_contiguous());
+  assert(in_feat.is_contiguous());
+  assert(attn_row.dtype() == torch::kFloat32);
+  assert(attn_col.dtype() == torch::kFloat32);
+  assert(row_ptr.dtype() == torch::kInt32);
+  assert(col_ind.dtype() == torch::kInt32);
+  assert(in_feat.dtype() == torch::kFloat32);
+  return gat_inference_cuda(
+      attn_row, attn_col, row_ptr, col_ind,
+      negative_slope, in_feat);
+}
+
 std::vector<torch::Tensor>
 gat_forward_tb_cuda(
     torch::Tensor attn_row, torch::Tensor attn_col,
@@ -150,4 +181,5 @@ PYBIND11_MODULE(fused_gatconv, m)
   m.def("gat_forward", &gat_forward, "fused gat forward op");
   m.def("gat_forward_tb", &gat_forward_tb, "fused tb gat forward op");
   m.def("gat_backward", &gat_backward, "fused gat backward op");
+  m.def("gat_inference", &gat_inference, "fused gat inference op");
 }

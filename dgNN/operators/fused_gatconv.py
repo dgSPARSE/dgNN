@@ -6,11 +6,13 @@ import fused_gatconv as fused_gat
 def GATConvFuse(attn_row,attn_col,row_ptr,col_ind,col_ptr,row_ind,negative_slope,in_feat,attn_drop):
     return FusedGATFunction.apply(attn_row,attn_col,row_ptr,col_ind,col_ptr,row_ind,negative_slope,in_feat,attn_drop)
 
+def GATConvFuse_inference(attn_row,attn_col,row_ptr,col_ind,negative_slope,in_feat):
+    return fused_gat.gat_inference(attn_row,attn_col,row_ptr,col_ind,negative_slope,in_feat)
 
 class FusedGATFunction(torch.autograd.Function):
     @staticmethod
     def forward(ctx,attn_row,attn_col,row_ptr,col_ind,col_ptr,row_ind,negative_slope,in_feat,attn_drop):
-
+    
         out_feat,edge_max,edge_sum,edge_mask=fused_gat.gat_forward(attn_row,attn_col,row_ptr,col_ind,negative_slope,in_feat,attn_drop)
         # print(edge_mask)
         ctx.save_for_backward(row_ptr,col_ind,col_ptr,row_ind,edge_max,edge_sum,edge_mask,in_feat,attn_row,attn_col)
