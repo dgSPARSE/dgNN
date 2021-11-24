@@ -38,8 +38,10 @@ __global__ void fused_forward_kernel(int m, int nnz, int h, int f, float attn_dr
   int hb = row_ptr[rid + 1];
   int ptr = lb + threadIdx.x;
   int loop = (hb - lb + 31) / 32;
+  int block_id = blockIdx.y * gridDim.x + blockIdx.x;
+  int thread_id = block_id * blockDim.x * blockDim.y + threadIdx.y * blockDim.x + threadIdx.x;
   curandState state;
-  curand_init(seed, rid * hid, 0, &state);
+  curand_init(thread_id, 0, 0, &state);
   extern __shared__ float val_sh[];
   float *attn_val_sh = val_sh;
   int *cid_sh = (int *)&val_sh[32];
@@ -245,8 +247,10 @@ __global__ void fused_forward_kernel_small_f_sm(
   int hb = row_ptr[rid + 1];
   int ptr = lb + threadIdx.x;
   int loop = (hb - lb + 31) / 32;
+  int block_id = blockIdx.y * gridDim.x + blockIdx.x;
+  int thread_id = block_id * blockDim.x * blockDim.y + threadIdx.y * blockDim.x + threadIdx.x;
   curandState state;
-  curand_init(seed, rid * hid, 0, &state);
+  curand_init(thread_id, 0, 0, &state);
   extern __shared__ float edge_val_sh[];
   float *attn_val_sh = &edge_val_sh[512 * h];
   float *cid_sh = &attn_val_sh[32 * h];
@@ -366,21 +370,31 @@ void gat_forward(int m, int nnz, int h, int f, float attn_drop,
                  float *edge_max, float *edge_sum, int *edge_mask,
                  const float *in_feat, float *out_feat)
 {
+  // float rt;
+  // cudaEvent_t start, stop;
+  // cudaEventCreate(&start);
+  // cudaEventCreate(&stop);
+  // cudaEventRecord(start, 0);
+
   int seed = time(0);
-  if (f > 64)
-  {
-    fused_forward_kernel<<<dim3(m, h, 1), dim3(32, (f + 31) / 32, 1),
-                           32 * (sizeof(float) + sizeof(int))>>>(
-        m, nnz, h, f, attn_drop, attn_row, attn_col, row_ptr, col_ind, in_feat,
-        negative_slope, edge_max, edge_sum, edge_mask, out_feat, seed);
-  }
-  else
-  {
-    fused_forward_kernel_small_f_sm<<<dim3(m, 1, 1), dim3(32, h, 1),
-                                      (32 + 512) * h * sizeof(float) + 32 * sizeof(float)>>>(
-        m, nnz, h, f, attn_drop, attn_row, attn_col, row_ptr, col_ind, in_feat,
-        negative_slope, edge_max, edge_sum, edge_mask, out_feat, seed);
-  }
+  // if (f > 64)
+  // {
+  fused_forward_kernel<<<dim3(m, h, 1), dim3(32, (f + 31) / 32, 1),
+                         32 * (sizeof(float) + sizeof(int))>>>(
+      m, nnz, h, f, attn_drop, attn_row, attn_col, row_ptr, col_ind, in_feat,
+      negative_slope, edge_max, edge_sum, edge_mask, out_feat, seed);
+  // }
+  // cudaEventRecord(stop, 0);
+  // cudaEventSynchronize(stop);
+  // cudaEventElapsedTime(&rt, start, stop);
+  // printf("forward time:%f\n", rt);
+  // else
+  // {
+  // fused_forward_kernel_small_f_sm<<<dim3(m, 1, 1), dim3(32, h, 1),
+  //                                   (32 + 512) * h * sizeof(float) + 32 * sizeof(float)>>>(
+  //     m, nnz, h, f, attn_drop, attn_row, attn_col, row_ptr, col_ind, in_feat,
+  //     negative_slope, edge_max, edge_sum, edge_mask, out_feat, seed);
+  // }
 }
 
 std::vector<torch::Tensor>
@@ -1129,6 +1143,7 @@ std::vector<torch::Tensor> gat_backward_cuda(
     torch::Tensor in_feat,
     torch::Tensor attn_row, torch::Tensor attn_col, torch::Tensor grad)
 {
+
   const auto m = row_ptr.size(0) - 1;
   const auto nnz = col_ind.size(0);
   const auto h = in_feat.size(1);
@@ -1137,11 +1152,10 @@ std::vector<torch::Tensor> gat_backward_cuda(
   auto options =
       torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA, devid);
   auto grad_edge_csr = torch::empty({nnz, h}, options);
-  // auto grad_edge_for_gather_csr = torch::empty({nnz, h}, options);
   auto grad_feat = torch::empty({m, h, f}, options);
   auto grad_attn_row = torch::empty({m, h}, options);
   auto grad_attn_col = torch::zeros({m, h}, options);
-  // printf("gat backward cuda\n");
+
   gat_backward(m, nnz, h, f, negative_slope, attn_drop,
                row_ptr.data_ptr<int>(), col_ind.data_ptr<int>(),
                col_ptr.data_ptr<int>(), row_ind.data_ptr<int>(),
@@ -1151,6 +1165,7 @@ std::vector<torch::Tensor> gat_backward_cuda(
                grad.data_ptr<float>(), grad_edge_csr.data_ptr<float>(),
                grad_feat.data_ptr<float>(), grad_attn_row.data_ptr<float>(),
                grad_attn_col.data_ptr<float>());
+
   return {grad_feat, grad_attn_row, grad_attn_col};
 }
 

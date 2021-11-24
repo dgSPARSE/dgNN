@@ -164,6 +164,10 @@ def main(args):
     loss_fcn = torch.nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
 
+    model.train()
+
+    print('warm up')
+
     for _ in range(10):
         logits = model(row_ptr,col_ind,col_ptr,row_ind,features)
 
