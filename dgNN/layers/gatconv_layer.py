@@ -2,7 +2,7 @@ from torch import nn
 import torch
 from torch.nn.modules.linear import Identity
 
-from ..operators.fused_gatconv import GATConvFuse
+from ..operators.fused_gatconv import GATConvFuse, GATConvFuse_inference
 
 class GATConv(nn.Module): # our gat layer
     def __init__(self,
@@ -74,7 +74,10 @@ class GATConv(nn.Module): # our gat layer
         attn_row = (self.attn_l * h).sum(dim=-1)
         attn_col = (self.attn_r * h).sum(dim=-1)
         
-        rst=GATConvFuse(attn_row,attn_col,row_ptr,col_ind,col_ptr,row_ind,self.negative_slope,h,self.attn_drop)
+        if not self.training:
+            rst=GATConvFuse_inference(attn_row,attn_col,row_ptr,col_ind,self.negative_slope,h)
+        else:
+            rst=GATConvFuse(attn_row,attn_col,row_ptr,col_ind,col_ptr,row_ind,self.negative_slope,h,self.attn_drop)
         
         if self.res_fc is not None:
             resval=self.res_fc(h).view(-1,self.num_heads,self.out_feats)

@@ -189,16 +189,23 @@ def main(args):
     end=time.time()
     train_time=(end-start)/args.epochs
 
-    # acc = evaluate(model, features, labels, test_mask)
-    model.eval()
-    with torch.no_grad():
-        logits = model(row_ptr,col_ind,col_ptr,row_ind,features)
-        logits = logits[test_mask]
+    print('profile inference')
+    torch.cuda.synchronize()
+    start=time.time()
+    for epoch in range(args.epochs):
+        model.eval()
+        with torch.no_grad():
+            logits = model(row_ptr,col_ind,col_ptr,row_ind,features)
+            logits = logits[test_mask]    
+    torch.cuda.synchronize()
+    end=time.time()
+    inference_time=(end-start)/args.epochs
         
     acc=accuracy(logits, labels[test_mask])
     print("Test Accuracy {:.4f}".format(acc))
 
     print("train time:",train_time)
+    print("inference time:",inference_time)
 
 
 if __name__ == '__main__':
