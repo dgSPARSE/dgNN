@@ -25,6 +25,7 @@ CUDA toolkit >= 10.0
 pytorch >= 1.7.0
 scipy
 dgl >= 0.7 (We use dgl's dataset)
+ninja
 ```
 
 We prepare a docker to run our implementation. You could run our dgNN in a docker container.
@@ -86,7 +87,7 @@ If you use our dgNN project in your research, please cite the following bib:
 }
 ```
 
-This project also implements algorithms from [GNN-computing](https://github.com/xxcclong/GNN-Computing). If you use our dgNN project in your research, please also cite the following bib:
+This project also implements part of algorithms from [GNN-computing](https://github.com/xxcclong/GNN-Computing), especially method of neighbor grouping in SpMM. If you use our dgNN project in your research, please also cite the following bib:
 
 ```bibtex
 @inproceedings{huang2021understanding,
@@ -97,3 +98,7 @@ This project also implements algorithms from [GNN-computing](https://github.com/
   year={2021}
 }
 ```
+
+---
+
+If you meet any problems in this repo, fill free to write issues or contact us by e-mail (yzm18@mails.tsinghua.edu.cn, hengrui-18@mails.tsinghua.edu.cn).
