@@ -9,13 +9,13 @@ from dgl.ops.edge_softmax import edge_softmax
 
 from dgNN.operators import GATConvFuse
 
-class GATConv_test(nn.Module):
+class GATConv_test_dgl(nn.Module):
     def __init__(self,
                  in_feats,
                  out_feats,
                  num_heads,
                  negative_slope=0.2):
-        super(GATConv_test, self).__init__()
+        super(GATConv_test_dgl, self).__init__()
         self._num_heads = num_heads
         self._in_feats= in_feats
         self._out_feats = out_feats
