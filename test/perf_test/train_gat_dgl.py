@@ -1,16 +1,15 @@
-from dgNN.layers.gatconv_layer import GATConv
-import argparse
-import time
-import torch
+from dgl.nn.pytorch.conv import GATConv
 import torch.nn.functional as F
+import torch
+import time
+import argparse
 import dgl
-import torch.nn as nn
 import GPUtil
 import scipy.sparse as sp
 
-class Net(nn.Module):
+class Net(torch.nn.Module):
     def __init__(self,
-                 row_ptr,col_idx,col_ptr,row_idx,
+                 graph,
                  num_layers,
                  in_dim,
                  num_hidden,
@@ -21,34 +20,29 @@ class Net(nn.Module):
                  attn_drop=0.,
                  negative_slope=0.2,
                  residual=None):
-        super(Net, self).__init__()
-        self.row_ptr=row_ptr
-        self.col_idx=col_idx
-        self.col_ptr=col_ptr
-        self.row_idx=row_idx
+        super().__init__()
+        self.graph=graph
         self.num_layers = num_layers
-        self.gat_layers = nn.ModuleList()
+        self.gat_layers = torch.nn.ModuleList()
+        self.activation = activation
         # input projection (no residual)
         self.gat_layers.append(GATConv(
-            in_dim, num_hidden, heads[0],feat_drop,attn_drop,
-            negative_slope,residual,bias=False))
+            in_dim, num_hidden, heads[0],negative_slope=negative_slope,feat_drop=feat_drop,attn_drop=attn_drop))
         # hidden layers
         for l in range(1, num_layers):
             # due to multi-head, the in_dim = num_hidden * num_heads
             self.gat_layers.append(GATConv(
-                num_hidden * heads[l-1], num_hidden, heads[l],feat_drop,attn_drop,
-                negative_slope,residual))
+                num_hidden * heads[l-1], num_hidden, heads[l],negative_slope=negative_slope,feat_drop=feat_drop,attn_drop=attn_drop))
         # output projection
         self.gat_layers.append(GATConv(
-            num_hidden * heads[-2], num_classes, heads[-1],feat_drop,attn_drop,
-           negative_slope))
+            num_hidden * heads[-2], num_classes, heads[-1],negative_slope=negative_slope,feat_drop=feat_drop,attn_drop=attn_drop))
 
-    def forward(self,inputs):
-        h = inputs
+    def forward(self, x):
+        h = x
         for l in range(self.num_layers):
-            h = self.gat_layers[l](self.row_ptr,self.col_idx,self.col_ptr,self.row_idx,h).flatten(1) # h.shape[-1] = num_heads*out_feats
+            h = self.gat_layers[l](self.graph,h).flatten(1) # h.shape[-1] = num_heads*out_feats
         # output projection
-        logits = self.gat_layers[-1](self.row_ptr,self.col_idx,self.col_ptr,self.row_idx,h).mean(1)
+        logits = self.gat_layers[-1](self.graph,h).mean(1)
         return logits
 
 def accuracy(logits, labels):
@@ -93,27 +87,24 @@ def load_dataset(args):
     train_mask = g.ndata['train_mask']
     test_mask = g.ndata['test_mask']
 
-    return row_ptr,col_ind,col_ptr,row_ind,edge_idx,features,labels,n_feats,n_classes,train_mask,test_mask
+    return row_ptr,col_ind,col_ptr,row_ind,edge_idx,features,labels,n_feats,n_classes,train_mask,test_mask,g
 
 def main(args):
     #load dataset
-    row_ptr,col_idx,col_ptr,row_idx,edge_idx,features,labels,n_feats,n_classes,train_mask,test_mask=load_dataset(args)
+    row_ptr,col_ind,col_ptr,row_ind,edge_idx,features,labels,n_feats,n_classes,train_mask,test_mask,g=load_dataset(args)
 
-    row_ptr=row_ptr.to(args.gpu).int()
-    col_idx=col_idx.to(args.gpu).int()
-    col_ptr=col_ptr.to(args.gpu).int()
-    row_idx=row_idx.to(args.gpu).int()
+    g=g.to(args.gpu)
+
     features=features.to(args.gpu)
     labels=labels.to(args.gpu)
     train_mask=train_mask.to(args.gpu)
     test_mask=train_mask.to(args.gpu)
 
     heads = ([args.n_heads] * args.n_layers) + [1]
-    model=Net(row_ptr,col_idx,col_ptr,row_idx,args.n_layers,n_feats,args.n_hidden,n_classes,heads,attn_drop=args.attn_drop,feat_drop=args.dropout,negative_slope=args.negative_slope).to(args.gpu)
+    model=Net(g,args.n_layers,n_feats,args.n_hidden,n_classes,heads,attn_drop=args.attn_drop,feat_drop=args.dropout,negative_slope=args.negative_slope).to(args.gpu)
     loss_fcn = torch.nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
 
-    print(args)
     print('warm up')
     maxMemory = 0
     for _ in range(10):
@@ -161,7 +152,7 @@ def main(args):
 
     if args.output!=None:
         with open("{}".format(args.output),'a') as f:
-            print("train_GAT_dgnn,{} heads={} hidden_dim={},{:f}s,{:f}s,{}MB,{}".format(args.dataset,args.n_heads,args.n_hidden,train_time,inference_time,maxMemory,acc),file=f)
+            print("train_GAT_dgl,{} heads={} hidden_dim={},{:f}s,{:f}s,{}MB,{}".format(args.dataset,args.n_heads,args.n_hidden,train_time,inference_time,maxMemory,acc),file=f)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='GAT')
@@ -192,4 +183,3 @@ if __name__ == '__main__':
     args = parser.parse_args()
     print(args)
     main(args)
-

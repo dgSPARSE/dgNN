@@ -3,18 +3,19 @@ import time
 import torch
 import torch.nn as nn
 from scipy import sparse
-from dgl.data import register_data_args, load_data
+from dgl.data import load_data
 import GPUtil
-from dgNN.layers.gmmconv_layer import GMMConv
+from torch_geometric.nn import GMMConv
+import scipy.sparse as sp
 
+def accuracy(logits, labels):
+    _, indices = torch.max(logits, dim=1)
+    correct = torch.sum(indices == labels)
+    return correct.item() * 1.0 / len(labels)
 
 class MoNet(nn.Module):
     def __init__(self,
-                 rowptr,
-                 colind,
-                 colptr,
-                 rowind,
-                 permute,
+                edge_index,
                  in_feats,
                  n_hidden,
                  out_feats,
@@ -23,11 +24,7 @@ class MoNet(nn.Module):
                  n_kernels,
                  dropout):
         super(MoNet, self).__init__()
-        self.rowptr = rowptr
-        self.colind = colind
-        self.colptr = colptr
-        self.rowind = rowind
-        self.permute = permute
+        self.edge_index=edge_index
         self.layers = nn.ModuleList()
         self.pseudo_proj = nn.ModuleList()
 
@@ -54,8 +51,7 @@ class MoNet(nn.Module):
         for i in range(len(self.layers)):
             if i != 0:
                 h = self.dropout(h)
-            h = self.layers[i](
-                self.rowptr, self.colind, self.colptr, self.rowind, self.permute, h, self.pseudo_proj[i](pseudo))
+            h = self.layers[i](h, self.edge_index,self.pseudo_proj[i](pseudo))
         return h
 
 def evaluate(model, features, pseudo, labels, mask):
@@ -67,11 +63,6 @@ def evaluate(model, features, pseudo, labels, mask):
         _, indices = torch.max(logits, dim=1)
         correct = torch.sum(indices == labels)
         return correct.item() * 1.0 / len(labels)
-
-def accuracy(logits, labels):
-    _, indices = torch.max(logits, dim=1)
-    correct = torch.sum(indices == labels)
-    return correct.item() * 1.0 / len(labels)
 
 def preprocess(g, args):
     rowptr, colind, _ = g.adj_sparse('csc') #reverse
@@ -101,40 +92,22 @@ def main(args):
     in_feats = features.shape[1]
     n_classes = data.num_labels
     n_edges = data.graph.number_of_edges()
-    print("""----Data statistics------'
-      #Edges %d
-      #Classes %d
-      #Train samples %d
-      #Val samples %d
-      #Test samples %d""" %
-          (n_edges, n_classes,
-           train_mask.sum().item(),
-           val_mask.sum().item(),
-           test_mask.sum().item()))
 
     # graph preprocess and calculate normalization factor
     g = g.remove_self_loop().add_self_loop()
     n_edges = g.number_of_edges()
-    rowptr, colind, colptr, rowind, permute = preprocess(g, args)
+    # rowptr, colind, colptr, rowind, permute = preprocess(g, args)
 
     us, vs = g.edges(order='eid')
     udeg, vdeg = 1 / torch.sqrt(g.in_degrees(us).float()), 1 / torch.sqrt(g.in_degrees(vs).float())
     pseudo = torch.cat([udeg.unsqueeze(1), vdeg.unsqueeze(1)], dim=1).to(args.gpu)
 
+    src,dst=g.edges(order='srcdst')
+    edge_index=torch.stack((src,dst)).to(args.gpu)
+
     # create GraphSAGE model
-    model = MoNet(rowptr,
-                  colind,
-                  colptr,
-                  rowind,
-                  permute,
-                  in_feats,
-                  args.n_hidden,
-                  n_classes,
-                  args.n_layers,
-                  args.pseudo_dim,
-                  args.n_kernels,
-                  args.dropout
-                  ).to(args.gpu)
+    model = MoNet(edge_index,in_feats,args.n_hidden,n_classes,args.n_layers,args.pseudo_dim,args.n_kernels,args.dropout).to(args.gpu)
+
     loss_fcn = torch.nn.CrossEntropyLoss()
 
     # use optimizer

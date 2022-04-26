@@ -110,7 +110,7 @@ class GATConv_test_pyg(MessagePassing):
         out_dgnn=GATConvFuse(alpha_dst,alpha_src,row_ptr,col_ind,col_ptr,row_ind,self.negative_slope,x_src,0.0)
 
         torch.cuda.synchronize()
-        print(torch.allclose(out,out_dgnn,1e-3,1e-5))
+        print(torch.allclose(out,out_dgnn,1e-4,1e-5))
         print(torch.max(torch.absolute(out-out_dgnn)))
 
         if self.concat:
@@ -227,8 +227,7 @@ if __name__ == '__main__':
                         help="number of training epochs")
     parser.add_argument("--num-heads", type=int, default=1,
                         help="number of hidden attention heads")
-    parser.add_argument('--profileio',type=int,default=0)
                     
     args = parser.parse_args()
-
+    print(args)
     main(args)

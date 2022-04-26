@@ -63,7 +63,7 @@ class GATConv_test_dgl(nn.Module):
             
             # print(rst_dgnn.shape,rst_dgl.shape)
             torch.cuda.synchronize()
-            print(torch.allclose(rst_dgl,rst_dgnn,1e-3,1e-5))
+            print(torch.allclose(rst_dgl,rst_dgnn,1e-4,1e-5))
             print(torch.max(torch.absolute(rst_dgl-rst_dgnn)))
             return rst_dgnn
 
@@ -109,7 +109,7 @@ def main(args):
     g=g.to(args.gpu)
 
     
-    model=GATConv_test(args.in_feats,args.out_feats,args.num_heads).to(args.gpu)
+    model=GATConv_test_dgl(args.in_feats,args.out_feats,args.num_heads).to(args.gpu)
     features=torch.rand(row_ptr.shape[0]-1,args.in_feats,device=args.gpu)
     
     for _ in range(args.epochs):
@@ -127,9 +127,8 @@ if __name__ == '__main__':
                         help="number of training epochs")
     parser.add_argument("--num-heads", type=int, default=1,
                         help="number of hidden attention heads")
-    parser.add_argument('--profileio',type=int,default=0)
                     
     args = parser.parse_args()
-
+    print(args)
     main(args)
 
