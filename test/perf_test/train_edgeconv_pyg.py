@@ -3,12 +3,36 @@ import torch.nn as nn
 import torch.nn.functional as F
 from dgl.nn.pytorch import KNNGraph
 
-from dgNN.layers.edgeconv_layer import EdgeConv
+# from dgNN.layers.edgeconv_layer import EdgeConv
 import time
 import numpy as np
 import GPUtil
 
 edgeconv_time=[]
+from typing import Callable, Optional, Union
+from torch import Tensor
+from torch_geometric.nn.conv import MessagePassing
+from torch_geometric.typing import Adj, OptTensor, PairOptTensor, PairTensor
+
+class EdgeConv_pyg(MessagePassing):
+    def __init__(self, in_channels,out_channels):
+        super().__init__(aggr='max')
+        self.theta = nn.Linear(in_channels,out_channels,bias=False)
+        self.phi=nn.Linear(in_channels,out_channels,bias=False)
+
+    def forward(self, x: Union[Tensor, PairTensor], edge_index: Adj) -> Tensor:
+        """"""
+        if isinstance(x, Tensor):
+            x: PairTensor = (x, x)
+        # propagate_type: (x: PairTensor)
+
+        rst_pyg=self.propagate(edge_index, x=x, size=None)
+
+        return rst_pyg
+
+    def message(self, x_i: Tensor, x_j: Tensor) -> Tensor:
+        return self.theta(x_j-x_i)+self.phi(x_i)
+
 class Model(nn.Module):
     def __init__(self, k, feature_dims, emb_dims, output_classes, input_dims=3,
                  dropout_prob=0.5):
@@ -19,7 +43,7 @@ class Model(nn.Module):
 
         self.num_layers = len(feature_dims)
         for i in range(self.num_layers):
-            self.conv.append(EdgeConv(
+            self.conv.append(EdgeConv_pyg(
                 feature_dims[i - 1] if i > 0 else input_dims,
                 feature_dims[i]))
 
@@ -46,10 +70,15 @@ class Model(nn.Module):
         h = x
 
         for i in range(self.num_layers):
-            g = self.nng(h)#.to(h.device)
+            g = self.nng(h)
             h = h.view(batch_size * n_points, -1)
-            src,dst=g.edges()
-            h = self.conv[i](self.k,src.int().to(h.device),h)
+            src,dst=g.edges(order='srcdst')
+            edge_idx=torch.stack((src.long(),dst.long())).to(h.device)
+            # print(edge_idx.shape)
+            # print(torch.max(edge_idx))
+            # print(torch.min(edge_idx))
+            # print(h.shape)
+            h = self.conv[i](h,edge_idx)
             h = F.leaky_relu(h, 0.2)
             h = h.view(batch_size, n_points, -1)
             hs.append(h)
@@ -285,4 +314,4 @@ print("inference time:",inference_time)
 
 if args.output!=None:
     with open("{}".format(args.output),'a') as f:
-        print(f"train_edgeconv_dgnn,{args.batch_size} {args.k},{train_time}s,{inference_time}s,{maxMemory}MB,{acc}",file=f)
+        print(f"train_edgeconv_pyg,{args.batch_size} {args.k},{train_time}s,{inference_time}s,{maxMemory}MB,{acc}",file=f)

@@ -105,6 +105,7 @@ std::vector<torch::Tensor> gat_backward_cuda(
     float negative_slope, float attn_drop,
     torch::Tensor row_ptr, torch::Tensor col_ind,
     torch::Tensor col_ptr, torch::Tensor row_ind,
+    torch::Tensor permute,
     torch::Tensor edge_max, torch::Tensor edge_sum, torch::Tensor edge_mask,
     torch::Tensor in_feat,
     torch::Tensor attn_row, torch::Tensor attn_col, torch::Tensor grad);
@@ -114,7 +115,7 @@ gat_backward(
     float negative_slope, float attn_drop,
     torch::Tensor row_ptr, torch::Tensor col_ind,
     torch::Tensor col_ptr, torch::Tensor row_ind,
-    // torch::Tensor permute,
+    torch::Tensor permute,
     // torch::Tensor edge_softmax_csr,
     // torch::Tensor edge_relu_csr,
     torch::Tensor edge_max, torch::Tensor edge_sum, torch::Tensor edge_mask,
@@ -125,7 +126,7 @@ gat_backward(
   assert(col_ind.device().type() == torch::kCUDA);
   assert(col_ptr.device().type() == torch::kCUDA);
   assert(row_ind.device().type() == torch::kCUDA);
-  // assert(permute.device().type() == torch::kCUDA);
+  assert(permute.device().type() == torch::kCUDA);
   // assert(permute2.device().type() == torch::kCUDA);
   // assert(edge_softmax_csr.device().type() == torch::kCUDA);
   // assert(edge_relu_csr.device().type() == torch::kCUDA);
@@ -141,7 +142,7 @@ gat_backward(
   assert(col_ind.is_contiguous());
   assert(col_ptr.is_contiguous());
   assert(row_ind.is_contiguous());
-  // assert(permute.is_contiguous());
+  assert(permute.is_contiguous());
   // assert(permute2.is_contiguous());
   // assert(edge_softmax_csr.is_contiguous());
   // assert(edge_relu_csr.is_contiguous());
@@ -157,7 +158,7 @@ gat_backward(
   assert(col_ind.dtype() == torch::kInt32);
   assert(col_ptr.dtype() == torch::kInt32);
   assert(row_ind.dtype() == torch::kInt32);
-  // assert(permute.dtype() == torch::kInt32);
+  assert(permute.dtype() == torch::kInt32);
   // assert(permute2.dtype() == torch::kInt32);
   // assert(edge_softmax_csr.dtype() == torch::kFloat32);
   // assert(edge_relu_csr.dtype() == torch::kFloat32);
@@ -170,7 +171,7 @@ gat_backward(
   assert(grad.dtype() == torch::kFloat32);
   // printf("gat backward\n");
 
-  return gat_backward_cuda(negative_slope, attn_drop, row_ptr, col_ind, col_ptr, row_ind,
+  return gat_backward_cuda(negative_slope, attn_drop, row_ptr, col_ind, col_ptr, row_ind,permute,
                            edge_max, edge_sum, edge_mask, in_feat, attn_row, attn_col,
                            grad);
 }

@@ -66,7 +66,7 @@ class GATConv(nn.Module): # our gat layer
             nn.init.xavier_normal_(self.res_fc.weight, gain=gain)
         
 
-    def forward(self,row_ptr,col_ind,col_ptr,row_ind,feat):
+    def forward(self,row_ptr,col_ind,col_ptr,row_ind,permute,feat):
 
         h=torch.matmul(feat,self.W).view(-1,self.num_heads,self.out_feats)
         h=self.feat_drop(h)
@@ -77,7 +77,7 @@ class GATConv(nn.Module): # our gat layer
         if not self.training:
             rst=GATConvFuse_inference(attn_row,attn_col,row_ptr,col_ind,self.negative_slope,h)
         else:
-            rst=GATConvFuse(attn_row,attn_col,row_ptr,col_ind,col_ptr,row_ind,self.negative_slope,h,self.attn_drop)
+            rst=GATConvFuse(attn_row,attn_col,row_ptr,col_ind,col_ptr,row_ind,permute,self.negative_slope,h,self.attn_drop)
         
         if self.res_fc is not None:
             resval=self.res_fc(h).view(-1,self.num_heads,self.out_feats)

@@ -4,8 +4,11 @@ import torch
 import time
 import argparse
 import dgl
-import GPUtil
+import psutil
+import os
 import scipy.sparse as sp
+from memory_profiler import profile
+from tqdm import tqdm
 
 class Net(torch.nn.Module):
     def __init__(self,
@@ -93,6 +96,7 @@ def load_dataset(args):
 
     return row_ptr,col_ind,col_ptr,row_ind,edge_idx,features,labels,n_feats,n_classes,train_mask,test_mask
 
+@profile
 def main(args):
     #load dataset
     row_ptr,col_ind,col_ptr,row_ind,edge_idx,features,labels,n_feats,n_classes,train_mask,test_mask=load_dataset(args)
@@ -109,23 +113,22 @@ def main(args):
     loss_fcn = torch.nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
 
-    # print('warm up')
-    # maxMemory = 0
-    # for _ in range(10):
-    #     model.train()
-    #     logits = model(features)
-    #     loss = loss_fcn(logits[train_mask], labels[train_mask])
-    #     optimizer.zero_grad()
-    #     loss.backward()
-    #     optimizer.step()  
-    #     GPUs = GPUtil.getGPUs()
-    #     maxMemory = max(GPUs[0].memoryUsed, maxMemory) 
+    print('warm up')
+    maxMemory = 0
+    for _ in tqdm(range(5)):
+        model.train()
+        logits = model(features)
+        loss = loss_fcn(logits[train_mask], labels[train_mask])
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()  
+        maxMemory = max(psutil.Process(os.getpid()).memory_info().rss/1024/1024, maxMemory) 
   
     print('profile training')
     model.train()
     # torch.cuda.synchronize()
     start=time.time()
-    for _ in range(args.n_epochs):
+    for _ in tqdm(range(args.n_epochs)):
         logits=model(features)
         loss=loss_fcn(logits[train_mask],labels[train_mask])
         optimizer.zero_grad()
@@ -138,12 +141,12 @@ def main(args):
 
     print('profile inference')
     model.eval()
-    torch.cuda.synchronize()
+    # torch.cuda.synchronize()
     start=time.time()
-    for epoch in range(args.n_epochs):  
+    for epoch in tqdm(range(args.n_epochs)):  
         with torch.no_grad():
             logits=model(features)
-    torch.cuda.synchronize()
+    # torch.cuda.synchronize()
     end=time.time()
     inference_time=(end-start)/args.n_epochs
     
@@ -156,7 +159,7 @@ def main(args):
 
     if args.output!=None:
         with open("{}".format(args.output),'a') as f:
-            print("train_GAT_pyg,{} heads={} hidden_dim={},{:f}s,{:f}s,{}MB".format(args.dataset,args.n_heads,args.n_hidden,train_time,inference_time,maxMemory),file=f)
+            print("train_GAT_pyg_cpu,{} heads={} hidden_dim={},{:f}s,{:f}s,{}MB".format(args.dataset,args.n_heads,args.n_hidden,train_time,inference_time,maxMemory),file=f)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='GAT')

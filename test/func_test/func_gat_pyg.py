@@ -85,7 +85,7 @@ class GATConv_test_pyg(MessagePassing):
         if self.lin_edge is not None:
             self.lin_edge.reset_parameters()
 
-    def forward(self, row_ptr,col_ind,col_ptr,row_ind,x: Union[Tensor, OptPairTensor], edge_index: Adj,
+    def forward(self, row_ptr,col_ind,col_ptr,row_ind,permute,x: Union[Tensor, OptPairTensor], edge_index: Adj,
                 edge_attr: OptTensor = None, size: Size = None,
                 return_attention_weights=None):
 
@@ -107,7 +107,7 @@ class GATConv_test_pyg(MessagePassing):
         # propagate_type: (x: OptPairTensor, alpha: Tensor)
         out = self.propagate(edge_index, x=x, alpha=alpha, size=size)
 
-        out_dgnn=GATConvFuse(alpha_dst,alpha_src,row_ptr,col_ind,col_ptr,row_ind,self.negative_slope,x_src,0.0)
+        out_dgnn=GATConvFuse(alpha_dst,alpha_src,row_ptr,col_ind,col_ptr,row_ind,permute,self.negative_slope,x_src,0.0)
 
         torch.cuda.synchronize()
         print(torch.allclose(out,out_dgnn,1e-4,1e-5))
@@ -195,16 +195,22 @@ def load_dataset(args):
     col_ptr=torch.from_numpy(adj_csc.indptr)
     row_ind=torch.from_numpy(adj_csc.indices)
 
-    return row_ptr,col_ind,col_ptr,row_ind,g
+    numlist = torch.arange(col.size(0), dtype=torch.int32)
+    adj_csr_new=sp.csr_matrix((numlist.numpy(),col_ind.cpu().numpy(),row_ptr.cpu().numpy()))
+    adj_csc_new=adj_csr_new.tocsc()
+    permute=torch.from_numpy(adj_csc_new.data)
+
+    return row_ptr,col_ind,col_ptr,row_ind,g,permute
 
 def main(args):
     #load dataset
-    row_ptr,col_ind,col_ptr,row_ind,g=load_dataset(args)
+    row_ptr,col_ind,col_ptr,row_ind,g,permute=load_dataset(args)
 
     row_ptr=row_ptr.to(args.gpu).int()
     col_ind=col_ind.to(args.gpu).int()
     col_ptr=col_ptr.to(args.gpu).int()
     row_ind=row_ind.to(args.gpu).int()
+    permute=permute.to(args.gpu).int()
     g=g.to(args.gpu)
     src,dst=g.edges(order='srcdst')
     edge_idx=torch.stack((src,dst))
@@ -213,7 +219,7 @@ def main(args):
     features=torch.rand(row_ptr.shape[0]-1,args.in_feats,device=args.gpu)
     
     for _ in range(args.epochs):
-        model(row_ptr,col_ind,col_ptr,row_ind,features,edge_idx)   
+        model(row_ptr,col_ind,col_ptr,row_ind,permute,features,edge_idx)   
 
 
 if __name__ == '__main__':

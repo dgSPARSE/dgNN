@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from dgl.nn.pytorch import KNNGraph
 
-from dgNN.layers.edgeconv_layer import EdgeConv
+from dgl.nn.pytorch import EdgeConv
 import time
 import numpy as np
 import GPUtil
@@ -46,10 +46,9 @@ class Model(nn.Module):
         h = x
 
         for i in range(self.num_layers):
-            g = self.nng(h)#.to(h.device)
+            g = self.nng(h).to(h.device)
             h = h.view(batch_size * n_points, -1)
-            src,dst=g.edges()
-            h = self.conv[i](self.k,src.int().to(h.device),h)
+            h = self.conv[i](g,h)
             h = F.leaky_relu(h, 0.2)
             h = h.view(batch_size, n_points, -1)
             hs.append(h)
@@ -285,4 +284,4 @@ print("inference time:",inference_time)
 
 if args.output!=None:
     with open("{}".format(args.output),'a') as f:
-        print(f"train_edgeconv_dgnn,{args.batch_size} {args.k},{train_time}s,{inference_time}s,{maxMemory}MB,{acc}",file=f)
+        print(f"train_edgeconv_dgl,{args.batch_size} {args.k},{train_time}s,{inference_time}s,{maxMemory}MB,{acc}",file=f)

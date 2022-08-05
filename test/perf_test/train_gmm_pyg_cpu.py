@@ -7,6 +7,10 @@ from dgl.data import load_data
 import GPUtil
 from torch_geometric.nn import GMMConv
 import scipy.sparse as sp
+import psutil
+import os
+from memory_profiler import profile
+from tqdm import tqdm
 
 def accuracy(logits, labels):
     _, indices = torch.max(logits, dim=1)
@@ -79,16 +83,17 @@ def preprocess(g, args):
     rowind = rowind.int().to(args.gpu)
     return rowptr, colind, colptr, rowind, permute
 
+@profile
 def main(args):
     # load and preprocess dataset
     data = load_data(args)
     g = data[0]
 
-    features = g.ndata['feat'].to(args.gpu)
-    labels = g.ndata['label'].to(args.gpu)
-    train_mask = g.ndata['train_mask'].to(args.gpu)
-    val_mask = g.ndata['val_mask'].to(args.gpu)
-    test_mask = g.ndata['test_mask'].to(args.gpu)
+    features = g.ndata['feat']
+    labels = g.ndata['label']
+    train_mask = g.ndata['train_mask']
+    val_mask = g.ndata['val_mask']
+    test_mask = g.ndata['test_mask']
     in_feats = features.shape[1]
     n_classes = data.num_labels
     n_edges = data.graph.number_of_edges()
@@ -100,13 +105,13 @@ def main(args):
 
     us, vs = g.edges(order='eid')
     udeg, vdeg = 1 / torch.sqrt(g.in_degrees(us).float()), 1 / torch.sqrt(g.in_degrees(vs).float())
-    pseudo = torch.cat([udeg.unsqueeze(1), vdeg.unsqueeze(1)], dim=1).to(args.gpu)
+    pseudo = torch.cat([udeg.unsqueeze(1), vdeg.unsqueeze(1)], dim=1)
 
     src,dst=g.edges(order='srcdst')
-    edge_index=torch.stack((src,dst)).to(args.gpu)
+    edge_index=torch.stack((src,dst))
 
     # create GraphSAGE model
-    model = MoNet(edge_index,in_feats,args.n_hidden,n_classes,args.n_layers,args.pseudo_dim,args.n_kernels,args.dropout).to(args.gpu)
+    model = MoNet(edge_index,in_feats,args.n_hidden,n_classes,args.n_layers,args.pseudo_dim,args.n_kernels,args.dropout)
 
     loss_fcn = torch.nn.CrossEntropyLoss()
 
@@ -115,39 +120,38 @@ def main(args):
 
     print('warm up')
     maxMemory = 0
-    for _ in range(10):
+    for _ in tqdm(range(1)):
         model.train()
         logits = model(features, pseudo)
         loss = loss_fcn(logits[train_mask], labels[train_mask])
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()  
-        GPUs = GPUtil.getGPUs()
-        maxMemory = max(GPUs[args.gpu].memoryUsed, maxMemory) 
+        maxMemory = max(psutil.Process(os.getpid()).memory_info().rss/1024/1024, maxMemory) 
   
     print('profile training')
     model.train()
-    torch.cuda.synchronize()
+    # torch.cuda.synchronize()
     start=time.time()
-    for _ in range(args.n_epochs):
+    for _ in tqdm(range(args.n_epochs)):
         logits=model(features, pseudo)
         loss=loss_fcn(logits[train_mask],labels[train_mask])
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()   
         print(loss.item())
-    torch.cuda.synchronize()
+    # torch.cuda.synchronize()
     end=time.time()
     train_time=(end-start)/args.n_epochs
 
     print('profile inference')
     model.eval()
-    torch.cuda.synchronize()
+    # torch.cuda.synchronize()
     start=time.time()
-    for epoch in range(args.n_epochs):  
+    for epoch in tqdm(range(args.n_epochs)):  
         with torch.no_grad():
             logits=model(features, pseudo)
-    torch.cuda.synchronize()
+    # torch.cuda.synchronize()
     end=time.time()
     inference_time=(end-start)/args.n_epochs
     
@@ -160,7 +164,7 @@ def main(args):
 
     if args.output!=None:
         with open("{}".format(args.output),'a') as f:
-            print("train_GMM_pyg,{} pseudo_dim={} n_kernels={} hidden_dim={},{:f}s,{:f}s,{}MB".format(args.dataset,args.pseudo_dim,args.n_kernels,args.n_hidden,train_time,inference_time,maxMemory),file=f)
+            print("train_GMM_pyg_cpu,{} pseudo_dim={} n_kernels={} hidden_dim={},{:f}s,{:f}s,{}MB".format(args.dataset,args.pseudo_dim,args.n_kernels,args.n_hidden,train_time,inference_time,maxMemory),file=f)
 
 
 if __name__ == '__main__':

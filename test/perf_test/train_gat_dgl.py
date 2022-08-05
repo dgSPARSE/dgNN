@@ -115,7 +115,7 @@ def main(args):
         loss.backward()
         optimizer.step()  
         GPUs = GPUtil.getGPUs()
-        maxMemory = max(GPUs[0].memoryUsed, maxMemory) 
+        maxMemory = max(GPUs[args.gpu].memoryUsed, maxMemory) 
   
     print('profile training')
     model.train()

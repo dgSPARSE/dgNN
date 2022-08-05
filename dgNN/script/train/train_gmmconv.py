@@ -187,7 +187,7 @@ def main(args):
 
     if args.output!=None:
         with open("{}".format(args.output),'a') as f:
-            print("train_GMM_pyg,{} heads={} hidden_dim={},{:f}s,{:f}s,{}MB".format(args.dataset,args.num_heads,args.num_hidden,train_time,inference_time,maxMemory),file=f)
+            print("train_GMM_dgnn,{} pseudo_dim={} n_kernels={} hidden_dim={},{:f}s,{:f}s,{}MB".format(args.dataset,args.pseudo_dim,args.n_kernels,args.n_hidden,train_time,inference_time,maxMemory),file=f)
 
 
 if __name__ == '__main__':

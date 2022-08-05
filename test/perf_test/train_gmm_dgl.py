@@ -5,7 +5,7 @@ import torch.nn as nn
 from scipy import sparse
 from dgl.data import load_data
 import GPUtil
-from torch_geometric.nn import GMMConv
+from dgl.nn.pytorch.conv import GMMConv
 import scipy.sparse as sp
 
 def accuracy(logits, labels):
@@ -15,7 +15,7 @@ def accuracy(logits, labels):
 
 class MoNet(nn.Module):
     def __init__(self,
-                edge_index,
+                 graph,
                  in_feats,
                  n_hidden,
                  out_feats,
@@ -24,7 +24,7 @@ class MoNet(nn.Module):
                  n_kernels,
                  dropout):
         super(MoNet, self).__init__()
-        self.edge_index=edge_index
+        self.graph=graph
         self.layers = nn.ModuleList()
         self.pseudo_proj = nn.ModuleList()
 
@@ -51,7 +51,7 @@ class MoNet(nn.Module):
         for i in range(len(self.layers)):
             if i != 0:
                 h = self.dropout(h)
-            h = self.layers[i](h, self.edge_index,self.pseudo_proj[i](pseudo))
+            h = self.layers[i](self.graph,h,self.pseudo_proj[i](pseudo))
         return h
 
 def evaluate(model, features, pseudo, labels, mask):
@@ -94,7 +94,7 @@ def main(args):
     n_edges = data.graph.number_of_edges()
 
     # graph preprocess and calculate normalization factor
-    g = g.remove_self_loop().add_self_loop()
+    g = g.remove_self_loop().add_self_loop().to(args.gpu)
     n_edges = g.number_of_edges()
     # rowptr, colind, colptr, rowind, permute = preprocess(g, args)
 
@@ -102,11 +102,8 @@ def main(args):
     udeg, vdeg = 1 / torch.sqrt(g.in_degrees(us).float()), 1 / torch.sqrt(g.in_degrees(vs).float())
     pseudo = torch.cat([udeg.unsqueeze(1), vdeg.unsqueeze(1)], dim=1).to(args.gpu)
 
-    src,dst=g.edges(order='srcdst')
-    edge_index=torch.stack((src,dst)).to(args.gpu)
-
     # create GraphSAGE model
-    model = MoNet(edge_index,in_feats,args.n_hidden,n_classes,args.n_layers,args.pseudo_dim,args.n_kernels,args.dropout).to(args.gpu)
+    model = MoNet(g,in_feats,args.n_hidden,n_classes,args.n_layers,args.pseudo_dim,args.n_kernels,args.dropout).to(args.gpu)
 
     loss_fcn = torch.nn.CrossEntropyLoss()
 
@@ -160,7 +157,7 @@ def main(args):
 
     if args.output!=None:
         with open("{}".format(args.output),'a') as f:
-            print("train_GMM_pyg,{} pseudo_dim={} n_kernels={} hidden_dim={},{:f}s,{:f}s,{}MB".format(args.dataset,args.pseudo_dim,args.n_kernels,args.n_hidden,train_time,inference_time,maxMemory),file=f)
+            print("train_GMM_dgl,{} pseudo_dim={} n_kernels={} hidden_dim={},{:f}s,{:f}s,{}MB".format(args.dataset,args.pseudo_dim,args.n_kernels,args.n_hidden,train_time,inference_time,maxMemory),file=f)
 
 
 if __name__ == '__main__':

@@ -10,7 +10,7 @@ import scipy.sparse as sp
 
 class Net(nn.Module):
     def __init__(self,
-                 row_ptr,col_idx,col_ptr,row_idx,
+                 row_ptr,col_idx,col_ptr,row_idx,permute,
                  num_layers,
                  in_dim,
                  num_hidden,
@@ -26,6 +26,7 @@ class Net(nn.Module):
         self.col_idx=col_idx
         self.col_ptr=col_ptr
         self.row_idx=row_idx
+        self.permute=permute
         self.num_layers = num_layers
         self.gat_layers = nn.ModuleList()
         # input projection (no residual)
@@ -46,9 +47,9 @@ class Net(nn.Module):
     def forward(self,inputs):
         h = inputs
         for l in range(self.num_layers):
-            h = self.gat_layers[l](self.row_ptr,self.col_idx,self.col_ptr,self.row_idx,h).flatten(1) # h.shape[-1] = num_heads*out_feats
+            h = self.gat_layers[l](self.row_ptr,self.col_idx,self.col_ptr,self.row_idx,self.permute,h).flatten(1) # h.shape[-1] = num_heads*out_feats
         # output projection
-        logits = self.gat_layers[-1](self.row_ptr,self.col_idx,self.col_ptr,self.row_idx,h).mean(1)
+        logits = self.gat_layers[-1](self.row_ptr,self.col_idx,self.col_ptr,self.row_idx,self.permute,h).mean(1)
         return logits
 
 def accuracy(logits, labels):
@@ -76,7 +77,9 @@ def load_dataset(args):
     
     col,row=g.edges(order='srcdst')
     edge_idx=torch.stack((col,row))
-    adj_csr = sp.csr_matrix((torch.ones(row.shape), (row, col)), shape=(g.num_nodes(), g.num_nodes()))
+    numlist = torch.arange(col.size(0), dtype=torch.int32)
+
+    adj_csr = sp.csr_matrix((numlist.numpy(), (row, col)), shape=(g.num_nodes(), g.num_nodes()))
     
     row_ptr=torch.from_numpy(adj_csr.indptr)
     col_ind=torch.from_numpy(adj_csr.indices)
@@ -86,6 +89,10 @@ def load_dataset(args):
     col_ptr=torch.from_numpy(adj_csc.indptr)
     row_ind=torch.from_numpy(adj_csc.indices)
 
+    adj_csr_new=sp.csr_matrix((numlist.numpy(),col_ind.cpu().numpy(),row_ptr.cpu().numpy()))
+    adj_csc_new=adj_csr_new.tocsc()
+    permute=torch.from_numpy(adj_csc_new.data)
+    print(permute)
     features=g.ndata['feat']
     labels=g.ndata['label']
     n_feats=features.shape[1]
@@ -93,11 +100,11 @@ def load_dataset(args):
     train_mask = g.ndata['train_mask']
     test_mask = g.ndata['test_mask']
 
-    return row_ptr,col_ind,col_ptr,row_ind,edge_idx,features,labels,n_feats,n_classes,train_mask,test_mask
+    return row_ptr,col_ind,col_ptr,row_ind,edge_idx,features,labels,n_feats,n_classes,train_mask,test_mask,permute
 
 def main(args):
     #load dataset
-    row_ptr,col_idx,col_ptr,row_idx,edge_idx,features,labels,n_feats,n_classes,train_mask,test_mask=load_dataset(args)
+    row_ptr,col_idx,col_ptr,row_idx,edge_idx,features,labels,n_feats,n_classes,train_mask,test_mask,permute=load_dataset(args)
 
     row_ptr=row_ptr.to(args.gpu).int()
     col_idx=col_idx.to(args.gpu).int()
@@ -107,9 +114,10 @@ def main(args):
     labels=labels.to(args.gpu)
     train_mask=train_mask.to(args.gpu)
     test_mask=train_mask.to(args.gpu)
+    permute=permute.to(args.gpu)
 
     heads = ([args.n_heads] * args.n_layers) + [1]
-    model=Net(row_ptr,col_idx,col_ptr,row_idx,args.n_layers,n_feats,args.n_hidden,n_classes,heads,attn_drop=args.attn_drop,feat_drop=args.dropout,negative_slope=args.negative_slope).to(args.gpu)
+    model=Net(row_ptr,col_idx,col_ptr,row_idx,permute,args.n_layers,n_feats,args.n_hidden,n_classes,heads,attn_drop=args.attn_drop,feat_drop=args.dropout,negative_slope=args.negative_slope).to(args.gpu)
     loss_fcn = torch.nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
 
@@ -124,7 +132,7 @@ def main(args):
         loss.backward()
         optimizer.step()  
         GPUs = GPUtil.getGPUs()
-        maxMemory = max(GPUs[0].memoryUsed, maxMemory) 
+        maxMemory = max(GPUs[args.gpu].memoryUsed, maxMemory) 
   
     print('profile training')
     model.train()

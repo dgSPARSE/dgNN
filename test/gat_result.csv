@@ -1,12 +1,23 @@
-train_GAT_pyg,cora heads=4 hidden_dim=64,0.005317s,0.012902s,1371.0MB,0.9785714285714285
-train_GAT_dgl,cora heads=4 hidden_dim=64,0.007645s,0.002661s,1497.0MB,0.9642857142857143
-train_GAT_dgnn,cora heads=4 hidden_dim=64,0.004178s,0.000347s,1331.0MB,0.9642857142857143
-train_GAT_pyg,pubmed heads=4 hidden_dim=64,0.007402s,0.013657s,1805.0MB,0.9666666666666667
-train_GAT_dgl,pubmed heads=4 hidden_dim=64,0.007916s,0.002744s,1649.0MB,0.95
-train_GAT_dgnn,pubmed heads=4 hidden_dim=64,0.004914s,0.000813s,1459.0MB,0.95
-train_GAT_pyg,citeseer heads=4 hidden_dim=64,0.005669s,0.013099s,1407.0MB,0.9333333333333333
-train_GAT_dgl,citeseer heads=4 hidden_dim=64,0.008353s,0.003050s,1577.0MB,0.9333333333333333
-train_GAT_dgnn,citeseer heads=4 hidden_dim=64,0.004531s,0.000581s,1363.0MB,0.9416666666666667
-train_GAT_pyg_cpu,reddit heads=4 hidden_dim=64,na,na,~100GB,0.8379
-train_GAT_dgl,reddit heads=4 hidden_dim=64,0.883551s,0.303386s,22467.0MB,0.23437897165501104
-train_GAT_dgnn,reddit heads=4 hidden_dim=64,0.643429s,0.139044s,7843.0MB,0.026318019174743044
+train_GAT_pyg,cora heads=4 hidden_dim=64,0.005303s,0.013055s,1371.0MB,0.9857142857142858
+train_GAT_dgl,cora heads=4 hidden_dim=64,0.007585s,0.002624s,1497.0MB,0.9714285714285714
+train_GAT_dgnn,cora heads=4 hidden_dim=64,0.003975s,0.000360s,1331.0MB,0.9714285714285714
+train_GAT_pyg,pubmed heads=4 hidden_dim=64,0.007193s,0.012476s,1805.0MB,0.9666666666666667
+train_GAT_dgl,pubmed heads=4 hidden_dim=64,0.008025s,0.002723s,1649.0MB,0.95
+train_GAT_dgnn,pubmed heads=4 hidden_dim=64,0.004699s,0.000812s,1459.0MB,0.9333333333333333
+train_GAT_pyg,citeseer heads=4 hidden_dim=64,0.005427s,0.013106s,1407.0MB,0.9333333333333333
+train_GAT_dgl,citeseer heads=4 hidden_dim=64,0.007682s,0.002639s,1577.0MB,0.9333333333333333
+train_GAT_dgnn,citeseer heads=4 hidden_dim=64,0.005012s,0.000590s,1365.0MB,0.9416666666666667
+train_GAT_dgl,reddit heads=4 hidden_dim=64,0.881260s,0.303097s,22467.0MB,0.26492690525382745
+train_GAT_dgnn,reddit heads=4 hidden_dim=64,0.651762s,0.138770s,8283.0MB,0.2724351662962504
+train_GAT_pyg_cpu,reddit heads=1 hidden_dim=64,272.952309s,38.332325s,57882.1MB
+
+dgsparse project intro 2 page
+performance chart
+paper pub
+框图对比
+
+train_GAT_dgl,reddit heads=1 hidden_dim=64,0.483415s,0.159355s,3.0MB,0.0746589672230514
+train_GAT_dgnn,reddit heads=1 hidden_dim=64,0.247250s,0.062236s,4815.0MB,0.09312329320671833
+train_GAT_dgl,reddit heads=1 hidden_dim=64,0.484210s,0.159112s,14131.0MB,0.15328062777404827
+train_GAT_dgnn,reddit heads=1 hidden_dim=64,0.248292s,0.062275s,4815.0MB,0.02899674772373249
+train_GAT_pyg,cora heads=4 hidden_dim=64,0.005568s,0.012736s,4235.0MB,0.9714285714285714
