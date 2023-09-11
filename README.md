@@ -76,17 +76,6 @@ python train_edgeconv.py
 This project is projected by [Apache-2.0](https://github.com/dgSPARSE/dgNN/blob/main/LICENSE) License.
 If you use our dgNN project in your research, please cite the following bib:
 
-```bibtex
-@misc{zhang2021understanding,
-    title={Understanding GNN Computational Graph: A Coordinated Computation, IO, and Memory Perspective},
-    author={Hengrui Zhang and Zhongming Yu and Guohao Dai and Guyue Huang and Yufei Ding and Yuan Xie and Yu Wang},
-    year={2021},
-    eprint={2110.09524},
-    archivePrefix={arXiv},
-    primaryClass={cs.LG}
-}
-```
-
 This project also implements part of algorithms from [GNN-computing](https://github.com/xxcclong/GNN-Computing), especially method of neighbor grouping in SpMM. If you use our dgNN project in your research, please also cite the following bib:
 
 ```bibtex
