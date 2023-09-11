@@ -1,5 +1,7 @@
 ## dgNN
 
+> **Note** We'd like to inform our users that dgNN will no longer be actively maintained. Our development efforts will focus on integrating its features and functionalities into [dgSPARSE-Lib](https://github.com/dgSPARSE/dgSPARSE-Lib). We believe this consolidation will provide a more streamlined and efficient experience for our user community. Thank you for your continued support.
+
 dgNN is a high-performance backend for GNN layers with DFG (Data Flow Graph) level optimization. dgNN project is based on [PyTorch](https://github.com/pytorch/pytorch).
 
 ### How to install
