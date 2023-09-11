@@ -5,7 +5,6 @@
 #include <cuda_runtime.h>
 #include <cuda_runtime_api.h>
 
-
 #define CEIL(x, y) (((x) + (y)-1) / (y))
 
 #define MIN(a, b) ((a < b) ? a : b)

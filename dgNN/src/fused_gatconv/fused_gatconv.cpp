@@ -11,8 +11,7 @@ gat_forward_cuda(torch::Tensor attn_row, torch::Tensor attn_col,
 std::vector<torch::Tensor>
 gat_forward(torch::Tensor attn_row, torch::Tensor attn_col,
             torch::Tensor row_ptr, torch::Tensor col_ind, float negative_slope,
-            torch::Tensor in_feat, float attn_drop)
-{
+            torch::Tensor in_feat, float attn_drop) {
   assert(attn_row.device().type() == torch::kCUDA);
   assert(attn_col.device().type() == torch::kCUDA);
   assert(row_ptr.device().type() == torch::kCUDA);
@@ -32,15 +31,13 @@ gat_forward(torch::Tensor attn_row, torch::Tensor attn_col,
                           in_feat, attn_drop);
 }
 
-torch::Tensor gat_inference_cuda(
-    torch::Tensor attn_row, torch::Tensor attn_col,
-    torch::Tensor row_ptr, torch::Tensor col_ind,
-    float negative_slope, torch::Tensor in_feat);
+torch::Tensor gat_inference_cuda(torch::Tensor attn_row, torch::Tensor attn_col,
+                                 torch::Tensor row_ptr, torch::Tensor col_ind,
+                                 float negative_slope, torch::Tensor in_feat);
 
-torch::Tensor gat_inference(
-    torch::Tensor attn_row, torch::Tensor attn_col,
-    torch::Tensor row_ptr, torch::Tensor col_ind,
-    float negative_slope, torch::Tensor in_feat)
+torch::Tensor gat_inference(torch::Tensor attn_row, torch::Tensor attn_col,
+                            torch::Tensor row_ptr, torch::Tensor col_ind,
+                            float negative_slope, torch::Tensor in_feat)
 
 {
   assert(attn_row.device().type() == torch::kCUDA);
@@ -58,24 +55,21 @@ torch::Tensor gat_inference(
   assert(row_ptr.dtype() == torch::kInt32);
   assert(col_ind.dtype() == torch::kInt32);
   assert(in_feat.dtype() == torch::kFloat32);
-  return gat_inference_cuda(
-      attn_row, attn_col, row_ptr, col_ind,
-      negative_slope, in_feat);
+  return gat_inference_cuda(attn_row, attn_col, row_ptr, col_ind,
+                            negative_slope, in_feat);
 }
 
 std::vector<torch::Tensor>
-gat_forward_tb_cuda(
-    torch::Tensor attn_row, torch::Tensor attn_col,
-    torch::Tensor row_ptr, torch::Tensor col_ind,
-    float negative_slope, torch::Tensor in_feat,
-    torch::Tensor tile_scheduler);
+gat_forward_tb_cuda(torch::Tensor attn_row, torch::Tensor attn_col,
+                    torch::Tensor row_ptr, torch::Tensor col_ind,
+                    float negative_slope, torch::Tensor in_feat,
+                    torch::Tensor tile_scheduler);
 
 std::vector<torch::Tensor>
-gat_forward_tb(
-    torch::Tensor attn_row, torch::Tensor attn_col,
-    torch::Tensor row_ptr, torch::Tensor col_ind, float negative_slope,
-    torch::Tensor in_feat,
-    torch::Tensor tile_scheduler)
+gat_forward_tb(torch::Tensor attn_row, torch::Tensor attn_col,
+               torch::Tensor row_ptr, torch::Tensor col_ind,
+               float negative_slope, torch::Tensor in_feat,
+               torch::Tensor tile_scheduler)
 
 {
   assert(attn_row.device().type() == torch::kCUDA);
@@ -96,32 +90,27 @@ gat_forward_tb(
   assert(col_ind.dtype() == torch::kInt32);
   assert(in_feat.dtype() == torch::kFloat32);
   assert(tile_scheduler.dtype() == torch::kInt32);
-  return gat_forward_tb_cuda(
-      attn_row, attn_col, row_ptr, col_ind,
-      negative_slope, in_feat, tile_scheduler);
+  return gat_forward_tb_cuda(attn_row, attn_col, row_ptr, col_ind,
+                             negative_slope, in_feat, tile_scheduler);
 }
 
 std::vector<torch::Tensor> gat_backward_cuda(
-    float negative_slope, float attn_drop,
-    torch::Tensor row_ptr, torch::Tensor col_ind,
-    torch::Tensor col_ptr, torch::Tensor row_ind,
-    torch::Tensor permute,
-    torch::Tensor edge_max, torch::Tensor edge_sum, torch::Tensor edge_mask,
-    torch::Tensor in_feat,
-    torch::Tensor attn_row, torch::Tensor attn_col, torch::Tensor grad);
+    float negative_slope, float attn_drop, torch::Tensor row_ptr,
+    torch::Tensor col_ind, torch::Tensor col_ptr, torch::Tensor row_ind,
+    torch::Tensor permute, torch::Tensor edge_max, torch::Tensor edge_sum,
+    torch::Tensor edge_mask, torch::Tensor in_feat, torch::Tensor attn_row,
+    torch::Tensor attn_col, torch::Tensor grad);
 
 std::vector<torch::Tensor>
-gat_backward(
-    float negative_slope, float attn_drop,
-    torch::Tensor row_ptr, torch::Tensor col_ind,
-    torch::Tensor col_ptr, torch::Tensor row_ind,
-    torch::Tensor permute,
-    // torch::Tensor edge_softmax_csr,
-    // torch::Tensor edge_relu_csr,
-    torch::Tensor edge_max, torch::Tensor edge_sum, torch::Tensor edge_mask,
-    torch::Tensor in_feat, torch::Tensor attn_row,
-    torch::Tensor attn_col, torch::Tensor grad)
-{
+gat_backward(float negative_slope, float attn_drop, torch::Tensor row_ptr,
+             torch::Tensor col_ind, torch::Tensor col_ptr,
+             torch::Tensor row_ind, torch::Tensor permute,
+             // torch::Tensor edge_softmax_csr,
+             // torch::Tensor edge_relu_csr,
+             torch::Tensor edge_max, torch::Tensor edge_sum,
+             torch::Tensor edge_mask, torch::Tensor in_feat,
+             torch::Tensor attn_row, torch::Tensor attn_col,
+             torch::Tensor grad) {
   assert(row_ptr.device().type() == torch::kCUDA);
   assert(col_ind.device().type() == torch::kCUDA);
   assert(col_ptr.device().type() == torch::kCUDA);
@@ -171,13 +160,12 @@ gat_backward(
   assert(grad.dtype() == torch::kFloat32);
   // printf("gat backward\n");
 
-  return gat_backward_cuda(negative_slope, attn_drop, row_ptr, col_ind, col_ptr, row_ind,permute,
-                           edge_max, edge_sum, edge_mask, in_feat, attn_row, attn_col,
-                           grad);
+  return gat_backward_cuda(negative_slope, attn_drop, row_ptr, col_ind, col_ptr,
+                           row_ind, permute, edge_max, edge_sum, edge_mask,
+                           in_feat, attn_row, attn_col, grad);
 }
 
-PYBIND11_MODULE(fused_gatconv, m)
-{
+PYBIND11_MODULE(fused_gatconv, m) {
   m.doc() = "fuse sparse ops in gat into one kernel. ";
   m.def("gat_forward", &gat_forward, "fused gat forward op");
   m.def("gat_forward_tb", &gat_forward_tb, "fused tb gat forward op");

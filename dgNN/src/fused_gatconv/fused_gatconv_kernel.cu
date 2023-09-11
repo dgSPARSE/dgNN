@@ -2,8 +2,8 @@
 #include <cuda.h>
 #include <torch/types.h>
 
-#include <unistd.h>
 #include <stdio.h>
+#include <unistd.h>
 
 /* we need these includes for CUDA's random number stuff */
 #include <curand.h>
@@ -13,25 +13,22 @@
 #define LeakyRelu(x, negative_slope) ((x > 0) ? (x) : ((x)*negative_slope))
 using namespace std;
 
-#define CURAND_CALL(x)                                \
-  do                                                  \
-  {                                                   \
-    if ((x) != CURAND_STATUS_SUCCESS)                 \
-    {                                                 \
-      printf("Error at %s:%d\n", __FILE__, __LINE__); \
-      return EXIT_FAILURE;                            \
-    }                                                 \
+#define CURAND_CALL(x)                                                         \
+  do {                                                                         \
+    if ((x) != CURAND_STATUS_SUCCESS) {                                        \
+      printf("Error at %s:%d\n", __FILE__, __LINE__);                          \
+      return EXIT_FAILURE;                                                     \
+    }                                                                          \
   } while (0)
 
-__global__ void fused_forward_kernel(int m, int nnz, int h, int f, float attn_drop,
-                                     const float *attn_row,
+__global__ void fused_forward_kernel(int m, int nnz, int h, int f,
+                                     float attn_drop, const float *attn_row,
                                      const float *attn_col, const int *row_ptr,
                                      const int *col_ind, const float *in_feat,
                                      const float negative_slope,
                                      float *edge_max, float *edge_sum,
-                                     float *edge_mask,
-                                     float *out_feat, unsigned long long seed)
-{
+                                     float *edge_mask, float *out_feat,
+                                     unsigned long long seed) {
   int rid = blockIdx.x;
   int hid = blockIdx.y;
   int lb = row_ptr[rid];
@@ -47,20 +44,17 @@ __global__ void fused_forward_kernel(int m, int nnz, int h, int f, float attn_dr
 
   float weightMax = -1e38;
   // // computing weightMax
-  for (int j = 0; j < loop; j++)
-  {
+  for (int j = 0; j < loop; j++) {
     int pid = ptr + (j << 5);
     float weight = -1e38;
-    if (pid < hb)
-    {
+    if (pid < hb) {
       int cid = col_ind[pid];
       float attn_col_val = attn_col[cid * h + hid];
       weight = attn_row_val + attn_col_val;
       weight = LeakyRelu(weight, negative_slope);
     }
     __syncwarp();
-    for (int stride = 16; stride > 0; stride >>= 1)
-    {
+    for (int stride = 16; stride > 0; stride >>= 1) {
       float tmp = __shfl_xor_sync(0xffffffff, weight, stride, 32);
       weight = MAX(tmp, weight);
     }
@@ -70,12 +64,10 @@ __global__ void fused_forward_kernel(int m, int nnz, int h, int f, float attn_dr
     edge_max[rid * h + hid] = weightMax;
 
   float expAll = 0;
-  for (int j = 0; j < loop; j++)
-  {
+  for (int j = 0; j < loop; j++) {
     int pid = ptr + (j << 5);
     float exptmp = 0;
-    if (pid < hb)
-    {
+    if (pid < hb) {
       int cid = col_ind[pid];
       float attn_col_val = attn_col[cid * h + hid];
       float weight = attn_row_val + attn_col_val;
@@ -83,8 +75,7 @@ __global__ void fused_forward_kernel(int m, int nnz, int h, int f, float attn_dr
       exptmp = exp(weight - weightMax);
     }
     __syncwarp();
-    for (int stride = 16; stride > 0; stride >>= 1)
-    {
+    for (int stride = 16; stride > 0; stride >>= 1) {
       float tmp = __shfl_xor_sync(0xffffffff, exptmp, stride, 32);
       exptmp += tmp;
     }
@@ -97,12 +88,11 @@ __global__ void fused_forward_kernel(int m, int nnz, int h, int f, float attn_dr
   // for (int fid = threadIdx.x; fid < (f + 31) / 32 * 32; fid += 32)
   {
     float acc = 0;
-    for (int j = 0; j < loop; j++)
-    {
+    for (int j = 0; j < loop; j++) {
       int pid = ptr + (j << 5);
       float weight = 0;
       int cid = 0;
-      if (pid < hb && edge_mask[pid * h + hid]> attn_drop)
+      if (pid < hb && edge_mask[pid * h + hid] > attn_drop)
       // if (pid < hb)
       {
         cid = col_ind[pid];
@@ -111,12 +101,11 @@ __global__ void fused_forward_kernel(int m, int nnz, int h, int f, float attn_dr
         weight = LeakyRelu(weight, negative_slope);
         weight = exp(weight - weightMax) / expAll;
       }
-      attn_val_sh[threadIdx.x] = weight/ (1.0 - attn_drop);
+      attn_val_sh[threadIdx.x] = weight / (1.0 - attn_drop);
       cid_sh[threadIdx.x] = cid;
       __syncwarp();
       int jj = lb + (j << 5);
-      for (int kk = 0; kk < 32 && jj + kk < hb; kk++)
-      {
+      for (int kk = 0; kk < 32 && jj + kk < hb; kk++) {
         int cid = cid_sh[kk];
         float val = attn_val_sh[kk];
         acc += val * in_feat[cid * h * f + hid * f + fid];
@@ -131,9 +120,8 @@ __global__ void fused_forward_kernel(int m, int nnz, int h, int f, float attn_dr
 __global__ void fused_forward_kernel_small_f(
     int m, int nnz, int h, int f, const float *attn_row, const float *attn_col,
     const int *row_ptr, const int *col_ind, const float *in_feat,
-    const float negative_slope, int *edge_max, float *edge_sum,
-    float *out_feat, unsigned long long seed)
-{
+    const float negative_slope, int *edge_max, float *edge_sum, float *out_feat,
+    unsigned long long seed) {
   int rid = blockIdx.x;
   int hid = threadIdx.y;
   int lb = row_ptr[rid];
@@ -147,20 +135,17 @@ __global__ void fused_forward_kernel_small_f(
 
   float weightMax = -1e38;
   // // computing weightMax
-  for (int j = 0; j < loop; j++)
-  {
+  for (int j = 0; j < loop; j++) {
     int pid = ptr + (j << 5);
     float weight = -1e38;
-    if (pid < hb)
-    {
+    if (pid < hb) {
       int cid = col_ind[pid];
       float attn_col_val = attn_col[cid * h + hid];
       weight = attn_row_val + attn_col_val;
       weight = LeakyRelu(weight, negative_slope);
     }
     __syncwarp();
-    for (int stride = 16; stride > 0; stride >>= 1)
-    {
+    for (int stride = 16; stride > 0; stride >>= 1) {
       float tmp = __shfl_xor_sync(0xffffffff, weight, stride, 32);
       weight = MAX(tmp, weight);
     }
@@ -170,12 +155,10 @@ __global__ void fused_forward_kernel_small_f(
     edge_max[rid * h + hid] = weightMax;
 
   float expAll = 0;
-  for (int j = 0; j < loop; j++)
-  {
+  for (int j = 0; j < loop; j++) {
     int pid = ptr + (j << 5);
     float exptmp = 0;
-    if (pid < hb)
-    {
+    if (pid < hb) {
       int cid = col_ind[pid];
       float attn_col_val = attn_col[cid * h + hid];
       float weight = attn_row_val + attn_col_val;
@@ -183,8 +166,7 @@ __global__ void fused_forward_kernel_small_f(
       exptmp = exp(weight - weightMax);
     }
     __syncwarp();
-    for (int stride = 16; stride > 0; stride >>= 1)
-    {
+    for (int stride = 16; stride > 0; stride >>= 1) {
       float tmp = __shfl_xor_sync(0xffffffff, exptmp, stride, 32);
       exptmp += tmp;
     }
@@ -194,14 +176,11 @@ __global__ void fused_forward_kernel_small_f(
     edge_sum[rid * h + hid] = expAll;
 
   // int fid = threadIdx.y * 32 + threadIdx.x;
-  for (int fid = threadIdx.x; fid < (f + 31) / 32 * 32; fid += 32)
-  {
+  for (int fid = threadIdx.x; fid < (f + 31) / 32 * 32; fid += 32) {
     float acc = 0;
-    for (int j = 0; j < loop; j++)
-    {
+    for (int j = 0; j < loop; j++) {
       int pid = ptr + (j << 5);
-      if (pid < hb)
-      {
+      if (pid < hb) {
         int cid = col_ind[pid];
         float attn_col_val = attn_col[cid * h + hid];
         float weight = attn_row_val + attn_col_val;
@@ -216,8 +195,7 @@ __global__ void fused_forward_kernel_small_f(
       // }
       __syncwarp();
       int jj = lb + (j << 5);
-      for (int kk = 0; kk < 32 && jj + kk < hb; kk++)
-      {
+      for (int kk = 0; kk < 32 && jj + kk < hb; kk++) {
         int cid = col_ind[jj + kk];
         float val = attn_val_sh[32 * hid + kk];
         acc += val * in_feat[cid * h * f + hid * f + fid];
@@ -230,11 +208,10 @@ __global__ void fused_forward_kernel_small_f(
 }
 
 __global__ void fused_forward_kernel_small_f_sm(
-    int m, int nnz, int h, int f, float attn_drop, const float *attn_row, const float *attn_col,
-    const int *row_ptr, const int *col_ind, const float *in_feat,
-    const float negative_slope, float *edge_max, float *edge_sum, int *edge_mask,
-    float *out_feat, unsigned long long seed)
-{
+    int m, int nnz, int h, int f, float attn_drop, const float *attn_row,
+    const float *attn_col, const int *row_ptr, const int *col_ind,
+    const float *in_feat, const float negative_slope, float *edge_max,
+    float *edge_sum, int *edge_mask, float *out_feat, unsigned long long seed) {
   int rid = blockIdx.x;
   int hid = threadIdx.y;
   int lb = row_ptr[rid];
@@ -242,7 +219,8 @@ __global__ void fused_forward_kernel_small_f_sm(
   int ptr = lb + threadIdx.x;
   int loop = (hb - lb + 31) / 32;
   int block_id = blockIdx.y * gridDim.x + blockIdx.x;
-  int thread_id = block_id * blockDim.x * blockDim.y + threadIdx.y * blockDim.x + threadIdx.x;
+  int thread_id = block_id * blockDim.x * blockDim.y +
+                  threadIdx.y * blockDim.x + threadIdx.x;
   curandState state;
   curand_init(thread_id, 0, 0, &state);
   extern __shared__ float edge_val_sh[];
@@ -254,25 +232,21 @@ __global__ void fused_forward_kernel_small_f_sm(
 
   float weightMax = -1e38;
   // // computing weightMax
-  for (int j = 0; j < loop; j++)
-  {
+  for (int j = 0; j < loop; j++) {
     int pid = ptr + (j << 5);
     int edge_id = threadIdx.x + (j << 5);
     float weight = -1e38;
-    if (pid < hb)
-    {
+    if (pid < hb) {
       int cid = col_ind[pid];
       float attn_col_val = attn_col[cid * h + hid];
       weight = attn_row_val + attn_col_val;
       weight = LeakyRelu(weight, negative_slope);
-      if (edge_id < 512)
-      {
+      if (edge_id < 512) {
         edge_val_sh[edge_id * h + hid] = weight;
       }
     }
     __syncwarp();
-    for (int stride = 16; stride > 0; stride >>= 1)
-    {
+    for (int stride = 16; stride > 0; stride >>= 1) {
       float tmp = __shfl_xor_sync(0xffffffff, weight, stride, 32);
       weight = MAX(tmp, weight);
     }
@@ -282,20 +256,15 @@ __global__ void fused_forward_kernel_small_f_sm(
     edge_max[rid * h + hid] = weightMax;
 
   float expAll = 0;
-  for (int j = 0; j < loop; j++)
-  {
+  for (int j = 0; j < loop; j++) {
     int pid = ptr + (j << 5);
     int edge_id = threadIdx.x + (j << 5);
     float exptmp = 0;
-    if (pid < hb)
-    {
+    if (pid < hb) {
       float weight;
-      if (edge_id < 512)
-      {
+      if (edge_id < 512) {
         weight = edge_val_sh[edge_id * h + hid];
-      }
-      else
-      {
+      } else {
         int cid = col_ind[pid];
         float attn_col_val = attn_col[cid * h + hid];
         weight = attn_row_val + attn_col_val;
@@ -304,8 +273,7 @@ __global__ void fused_forward_kernel_small_f_sm(
       exptmp = exp(weight - weightMax);
     }
     __syncwarp();
-    for (int stride = 16; stride > 0; stride >>= 1)
-    {
+    for (int stride = 16; stride > 0; stride >>= 1) {
       float tmp = __shfl_xor_sync(0xffffffff, exptmp, stride, 32);
       exptmp += tmp;
     }
@@ -315,25 +283,19 @@ __global__ void fused_forward_kernel_small_f_sm(
     edge_sum[rid * h + hid] = expAll;
 
   // int fid = threadIdx.y * 32 + threadIdx.x;
-  for (int fid = threadIdx.x; fid < (f + 31) / 32 * 32; fid += 32)
-  {
+  for (int fid = threadIdx.x; fid < (f + 31) / 32 * 32; fid += 32) {
     float acc = 0;
-    for (int j = 0; j < loop; j++)
-    {
+    for (int j = 0; j < loop; j++) {
       int pid = ptr + (j << 5);
       int edge_id = threadIdx.x + (j << 5);
       float weight = 0;
       int mask = curand_uniform(&state) > attn_drop ? 1 : 0;
       edge_mask[pid * h + hid] = mask;
-      if (pid < hb && mask)
-      {
+      if (pid < hb && mask) {
         int cid = col_ind[pid];
-        if (edge_id < 512)
-        {
+        if (edge_id < 512) {
           weight = edge_val_sh[edge_id * h + hid];
-        }
-        else
-        {
+        } else {
           float attn_col_val = attn_col[cid * h + hid];
           weight = attn_row_val + attn_col_val;
           weight = LeakyRelu(weight, negative_slope);
@@ -344,8 +306,7 @@ __global__ void fused_forward_kernel_small_f_sm(
       attn_val_sh[32 * hid + threadIdx.x] = weight;
       __syncwarp();
       int jj = lb + (j << 5);
-      for (int kk = 0; kk < 32 && jj + kk < hb; kk++)
-      {
+      for (int kk = 0; kk < 32 && jj + kk < hb; kk++) {
         // int cid = col_ind[jj + kk];
         int cid = cid_sh[kk];
         float val = attn_val_sh[32 * hid + kk];
@@ -362,8 +323,7 @@ void gat_forward(int m, int nnz, int h, int f, float attn_drop,
                  const float *attn_row, const float *attn_col,
                  const int *row_ptr, const int *col_ind, float negative_slope,
                  float *edge_max, float *edge_sum, float *edge_mask,
-                 const float *in_feat, float *out_feat)
-{
+                 const float *in_feat, float *out_feat) {
   // float rt;
   // cudaEvent_t start, stop;
   // cudaEventCreate(&start);
@@ -373,12 +333,12 @@ void gat_forward(int m, int nnz, int h, int f, float attn_drop,
   long seed = clock();
   curandGenerator_t gen;
   (curandCreateGenerator(&gen, CURAND_RNG_PSEUDO_DEFAULT));
-    
+
   /* Set seed */
   (curandSetPseudoRandomGeneratorSeed(gen, seed));
 
   /* Generate n floats on device */
-  (curandGenerateUniform(gen, edge_mask, nnz*h));
+  (curandGenerateUniform(gen, edge_mask, nnz * h));
   // if (f > 64)
   // {
   fused_forward_kernel<<<dim3(m, h, 1), dim3(32, (f + 31) / 32, 1),
@@ -393,7 +353,8 @@ void gat_forward(int m, int nnz, int h, int f, float attn_drop,
   // else
   // {
   // fused_forward_kernel_small_f_sm<<<dim3(m, 1, 1), dim3(32, h, 1),
-  //                                   (32 + 512) * h * sizeof(float) + 32 * sizeof(float)>>>(
+  //                                   (32 + 512) * h * sizeof(float) + 32 *
+  //                                   sizeof(float)>>>(
   //     m, nnz, h, f, attn_drop, attn_row, attn_col, row_ptr, col_ind, in_feat,
   //     negative_slope, edge_max, edge_sum, edge_mask, out_feat, seed);
   // }
@@ -402,8 +363,7 @@ void gat_forward(int m, int nnz, int h, int f, float attn_drop,
 std::vector<torch::Tensor>
 gat_forward_cuda(torch::Tensor attn_row, torch::Tensor attn_col,
                  torch::Tensor row_ptr, torch::Tensor col_ind,
-                 float negative_slope, torch::Tensor in_feat, float attn_drop)
-{
+                 float negative_slope, torch::Tensor in_feat, float attn_drop) {
   const auto m = row_ptr.size(0) - 1;
   const auto nnz = col_ind.size(0);
   const auto h = attn_row.size(1);
@@ -419,21 +379,20 @@ gat_forward_cuda(torch::Tensor attn_row, torch::Tensor attn_col,
   auto optionsI =
       torch::TensorOptions().dtype(torch::kInt32).device(torch::kCUDA, devid);
   auto edge_mask = torch::empty({nnz, h}, options);
-  gat_forward(m, nnz, h, f, attn_drop,
-              attn_row.data_ptr<float>(), attn_col.data_ptr<float>(),
-              row_ptr.data_ptr<int>(), col_ind.data_ptr<int>(), negative_slope,
-              edge_max.data_ptr<float>(), edge_sum.data_ptr<float>(), edge_mask.data_ptr<float>(),
-              in_feat.data_ptr<float>(), out_feat.data_ptr<float>());
+  gat_forward(m, nnz, h, f, attn_drop, attn_row.data_ptr<float>(),
+              attn_col.data_ptr<float>(), row_ptr.data_ptr<int>(),
+              col_ind.data_ptr<int>(), negative_slope,
+              edge_max.data_ptr<float>(), edge_sum.data_ptr<float>(),
+              edge_mask.data_ptr<float>(), in_feat.data_ptr<float>(),
+              out_feat.data_ptr<float>());
   return {out_feat, edge_max, edge_sum, edge_mask};
 }
 
-__global__ void fused_inference_kernel(int m, int nnz, int h, int f,
-                                       const float *attn_row,
-                                       const float *attn_col, const int *row_ptr,
-                                       const int *col_ind, const float *in_feat,
-                                       const float negative_slope,
-                                       float *out_feat)
-{
+__global__ void
+fused_inference_kernel(int m, int nnz, int h, int f, const float *attn_row,
+                       const float *attn_col, const int *row_ptr,
+                       const int *col_ind, const float *in_feat,
+                       const float negative_slope, float *out_feat) {
   int rid = blockIdx.x;
   int hid = blockIdx.y;
   int lb = row_ptr[rid];
@@ -449,20 +408,17 @@ __global__ void fused_inference_kernel(int m, int nnz, int h, int f,
 
   float weightMax = -1e38;
   // // computing weightMax
-  for (int j = 0; j < loop; j++)
-  {
+  for (int j = 0; j < loop; j++) {
     int pid = ptr + (j << 5);
     float weight = -1e38;
-    if (pid < hb)
-    {
+    if (pid < hb) {
       int cid = col_ind[pid];
       float attn_col_val = attn_col[cid * h + hid];
       weight = attn_row_val + attn_col_val;
       weight = LeakyRelu(weight, negative_slope);
     }
     __syncwarp();
-    for (int stride = 16; stride > 0; stride >>= 1)
-    {
+    for (int stride = 16; stride > 0; stride >>= 1) {
       float tmp = __shfl_xor_sync(0xffffffff, weight, stride, 32);
       weight = MAX(tmp, weight);
     }
@@ -470,12 +426,10 @@ __global__ void fused_inference_kernel(int m, int nnz, int h, int f,
   }
 
   float expAll = 0;
-  for (int j = 0; j < loop; j++)
-  {
+  for (int j = 0; j < loop; j++) {
     int pid = ptr + (j << 5);
     float exptmp = 0;
-    if (pid < hb)
-    {
+    if (pid < hb) {
       int cid = col_ind[pid];
       float attn_col_val = attn_col[cid * h + hid];
       float weight = attn_row_val + attn_col_val;
@@ -483,8 +437,7 @@ __global__ void fused_inference_kernel(int m, int nnz, int h, int f,
       exptmp = exp(weight - weightMax);
     }
     __syncwarp();
-    for (int stride = 16; stride > 0; stride >>= 1)
-    {
+    for (int stride = 16; stride > 0; stride >>= 1) {
       float tmp = __shfl_xor_sync(0xffffffff, exptmp, stride, 32);
       exptmp += tmp;
     }
@@ -495,11 +448,9 @@ __global__ void fused_inference_kernel(int m, int nnz, int h, int f,
   // for (int fid = threadIdx.x; fid < (f + 31) / 32 * 32; fid += 32)
   {
     float acc = 0;
-    for (int j = 0; j < loop; j++)
-    {
+    for (int j = 0; j < loop; j++) {
       int pid = ptr + (j << 5);
-      if (pid < hb)
-      {
+      if (pid < hb) {
         int cid = col_ind[pid];
         float attn_col_val = attn_col[cid * h + hid];
         float weight = attn_row_val + attn_col_val;
@@ -514,8 +465,7 @@ __global__ void fused_inference_kernel(int m, int nnz, int h, int f,
       // }
       __syncwarp();
       int jj = lb + (j << 5);
-      for (int kk = 0; kk < 32 && jj + kk < hb; kk++)
-      {
+      for (int kk = 0; kk < 32 && jj + kk < hb; kk++) {
         int cid = cid_sh[kk];
         float val = attn_val_sh[kk];
         acc += val * in_feat[cid * h * f + hid * f + fid];
@@ -530,9 +480,7 @@ __global__ void fused_inference_kernel(int m, int nnz, int h, int f,
 __global__ void fused_inference_kernel_small_f(
     int m, int nnz, int h, int f, const float *attn_row, const float *attn_col,
     const int *row_ptr, const int *col_ind, const float *in_feat,
-    const float negative_slope,
-    float *out_feat)
-{
+    const float negative_slope, float *out_feat) {
   int rid = blockIdx.x;
   int hid = threadIdx.y;
   int lb = row_ptr[rid];
@@ -546,20 +494,17 @@ __global__ void fused_inference_kernel_small_f(
 
   float weightMax = -1e38;
   // // computing weightMax
-  for (int j = 0; j < loop; j++)
-  {
+  for (int j = 0; j < loop; j++) {
     int pid = ptr + (j << 5);
     float weight = -1e38;
-    if (pid < hb)
-    {
+    if (pid < hb) {
       int cid = col_ind[pid];
       float attn_col_val = attn_col[cid * h + hid];
       weight = attn_row_val + attn_col_val;
       weight = LeakyRelu(weight, negative_slope);
     }
     __syncwarp();
-    for (int stride = 16; stride > 0; stride >>= 1)
-    {
+    for (int stride = 16; stride > 0; stride >>= 1) {
       float tmp = __shfl_xor_sync(0xffffffff, weight, stride, 32);
       weight = MAX(tmp, weight);
     }
@@ -567,12 +512,10 @@ __global__ void fused_inference_kernel_small_f(
   }
 
   float expAll = 0;
-  for (int j = 0; j < loop; j++)
-  {
+  for (int j = 0; j < loop; j++) {
     int pid = ptr + (j << 5);
     float exptmp = 0;
-    if (pid < hb)
-    {
+    if (pid < hb) {
       int cid = col_ind[pid];
       float attn_col_val = attn_col[cid * h + hid];
       float weight = attn_row_val + attn_col_val;
@@ -580,8 +523,7 @@ __global__ void fused_inference_kernel_small_f(
       exptmp = exp(weight - weightMax);
     }
     __syncwarp();
-    for (int stride = 16; stride > 0; stride >>= 1)
-    {
+    for (int stride = 16; stride > 0; stride >>= 1) {
       float tmp = __shfl_xor_sync(0xffffffff, exptmp, stride, 32);
       exptmp += tmp;
     }
@@ -589,14 +531,11 @@ __global__ void fused_inference_kernel_small_f(
   }
 
   // int fid = threadIdx.y * 32 + threadIdx.x;
-  for (int fid = threadIdx.x; fid < (f + 31) / 32 * 32; fid += 32)
-  {
+  for (int fid = threadIdx.x; fid < (f + 31) / 32 * 32; fid += 32) {
     float acc = 0;
-    for (int j = 0; j < loop; j++)
-    {
+    for (int j = 0; j < loop; j++) {
       int pid = ptr + (j << 5);
-      if (pid < hb)
-      {
+      if (pid < hb) {
         int cid = col_ind[pid];
         float attn_col_val = attn_col[cid * h + hid];
         float weight = attn_row_val + attn_col_val;
@@ -611,8 +550,7 @@ __global__ void fused_inference_kernel_small_f(
       // }
       __syncwarp();
       int jj = lb + (j << 5);
-      for (int kk = 0; kk < 32 && jj + kk < hb; kk++)
-      {
+      for (int kk = 0; kk < 32 && jj + kk < hb; kk++) {
         int cid = col_ind[jj + kk];
         float val = attn_val_sh[32 * hid + kk];
         acc += val * in_feat[cid * h * f + hid * f + fid];
@@ -627,9 +565,7 @@ __global__ void fused_inference_kernel_small_f(
 __global__ void fused_inference_kernel_small_f_sm(
     int m, int nnz, int h, int f, const float *attn_row, const float *attn_col,
     const int *row_ptr, const int *col_ind, const float *in_feat,
-    const float negative_slope,
-    float *out_feat)
-{
+    const float negative_slope, float *out_feat) {
   int rid = blockIdx.x;
   int hid = threadIdx.y;
   int lb = row_ptr[rid];
@@ -645,25 +581,21 @@ __global__ void fused_inference_kernel_small_f_sm(
 
   float weightMax = -1e38;
   // // computing weightMax
-  for (int j = 0; j < loop; j++)
-  {
+  for (int j = 0; j < loop; j++) {
     int pid = ptr + (j << 5);
     int edge_id = threadIdx.x + (j << 5);
     float weight = -1e38;
-    if (pid < hb)
-    {
+    if (pid < hb) {
       int cid = col_ind[pid];
       float attn_col_val = attn_col[cid * h + hid];
       weight = attn_row_val + attn_col_val;
       weight = LeakyRelu(weight, negative_slope);
-      if (edge_id < 512)
-      {
+      if (edge_id < 512) {
         edge_val_sh[edge_id * h + hid] = weight;
       }
     }
     __syncwarp();
-    for (int stride = 16; stride > 0; stride >>= 1)
-    {
+    for (int stride = 16; stride > 0; stride >>= 1) {
       float tmp = __shfl_xor_sync(0xffffffff, weight, stride, 32);
       weight = MAX(tmp, weight);
     }
@@ -671,20 +603,15 @@ __global__ void fused_inference_kernel_small_f_sm(
   }
 
   float expAll = 0;
-  for (int j = 0; j < loop; j++)
-  {
+  for (int j = 0; j < loop; j++) {
     int pid = ptr + (j << 5);
     int edge_id = threadIdx.x + (j << 5);
     float exptmp = 0;
-    if (pid < hb)
-    {
+    if (pid < hb) {
       float weight;
-      if (edge_id < 512)
-      {
+      if (edge_id < 512) {
         weight = edge_val_sh[edge_id * h + hid];
-      }
-      else
-      {
+      } else {
         int cid = col_ind[pid];
         float attn_col_val = attn_col[cid * h + hid];
         weight = attn_row_val + attn_col_val;
@@ -693,8 +620,7 @@ __global__ void fused_inference_kernel_small_f_sm(
       exptmp = exp(weight - weightMax);
     }
     __syncwarp();
-    for (int stride = 16; stride > 0; stride >>= 1)
-    {
+    for (int stride = 16; stride > 0; stride >>= 1) {
       float tmp = __shfl_xor_sync(0xffffffff, exptmp, stride, 32);
       exptmp += tmp;
     }
@@ -702,24 +628,18 @@ __global__ void fused_inference_kernel_small_f_sm(
   }
 
   // int fid = threadIdx.y * 32 + threadIdx.x;
-  for (int fid = threadIdx.x; fid < (f + 31) / 32 * 32; fid += 32)
-  {
+  for (int fid = threadIdx.x; fid < (f + 31) / 32 * 32; fid += 32) {
     float acc = 0;
-    for (int j = 0; j < loop; j++)
-    {
+    for (int j = 0; j < loop; j++) {
       int pid = ptr + (j << 5);
       int edge_id = threadIdx.x + (j << 5);
 
-      if (pid < hb)
-      {
+      if (pid < hb) {
         int cid = col_ind[pid];
         float weight;
-        if (edge_id < 512)
-        {
+        if (edge_id < 512) {
           weight = edge_val_sh[edge_id * h + hid];
-        }
-        else
-        {
+        } else {
 
           float attn_col_val = attn_col[cid * h + hid];
           weight = attn_row_val + attn_col_val;
@@ -735,8 +655,7 @@ __global__ void fused_inference_kernel_small_f_sm(
       // }
       __syncwarp();
       int jj = lb + (j << 5);
-      for (int kk = 0; kk < 32 && jj + kk < hb; kk++)
-      {
+      for (int kk = 0; kk < 32 && jj + kk < hb; kk++) {
         // int cid = col_ind[jj + kk];
         int cid = cid_sh[kk];
         float val = attn_val_sh[32 * hid + kk];
@@ -750,33 +669,30 @@ __global__ void fused_inference_kernel_small_f_sm(
 }
 
 void gat_inference(int m, int nnz, int h, int f, const float *attn_row,
-                   const float *attn_col, const int *row_ptr, const int *col_ind,
-                   float negative_slope,
-                   const float *in_feat, float *out_feat)
-{
+                   const float *attn_col, const int *row_ptr,
+                   const int *col_ind, float negative_slope,
+                   const float *in_feat, float *out_feat) {
   if (f > 64)
     fused_inference_kernel<<<dim3(m, h, 1), dim3(32, (f + 31) / 32, 1),
                              32 * (sizeof(float) + sizeof(int))>>>(
         m, nnz, h, f, attn_row, attn_col, row_ptr, col_ind, in_feat,
         negative_slope, out_feat);
-  else
-  {
+  else {
     // fused_forward_kernel_small_f<<<dim3(m, 1, 1), dim3(32, h, 1),
     //                                32 * h * sizeof(float)>>>(
     //     m, nnz, h, f, attn_row, attn_col, row_ptr, col_ind, in_feat,
     //     negative_slope, edge_max, edge_sum, out_feat);
     fused_inference_kernel_small_f_sm<<<dim3(m, 1, 1), dim3(32, h, 1),
-                                        (32 + 512) * h * sizeof(float) + 32 * sizeof(float)>>>(
+                                        (32 + 512) * h * sizeof(float) +
+                                            32 * sizeof(float)>>>(
         m, nnz, h, f, attn_row, attn_col, row_ptr, col_ind, in_feat,
         negative_slope, out_feat);
   }
 }
 
-torch::Tensor
-gat_inference_cuda(torch::Tensor attn_row, torch::Tensor attn_col,
-                   torch::Tensor row_ptr, torch::Tensor col_ind,
-                   float negative_slope, torch::Tensor in_feat)
-{
+torch::Tensor gat_inference_cuda(torch::Tensor attn_row, torch::Tensor attn_col,
+                                 torch::Tensor row_ptr, torch::Tensor col_ind,
+                                 float negative_slope, torch::Tensor in_feat) {
   const auto m = row_ptr.size(0) - 1;
   const auto nnz = col_ind.size(0);
   const auto h = attn_row.size(1);
@@ -795,10 +711,10 @@ gat_inference_cuda(torch::Tensor attn_row, torch::Tensor attn_col,
 
 __global__ void mhspmm_backward_kernel(
     int m, int nnz, int h, int f, float negative_slope, float attn_drop,
-    const int *row_ptr, const int *col_ind, const int *col_ptr, const int *row_ind,const int* permute,
-    const float *edge_max, const float *edge_sum, const float *edge_mask,
-    const float *attn_row, const float *attn_col, const float *grad_in, float *grad_out)
-{
+    const int *row_ptr, const int *col_ind, const int *col_ptr,
+    const int *row_ind, const int *permute, const float *edge_max,
+    const float *edge_sum, const float *edge_mask, const float *attn_row,
+    const float *attn_col, const float *grad_in, float *grad_out) {
   int cid = blockIdx.x;
   int hid = blockIdx.y;
   int lb = col_ptr[cid];
@@ -814,13 +730,12 @@ __global__ void mhspmm_backward_kernel(
   int fid = threadIdx.y * 32 + threadIdx.x;
   {
     float acc = 0;
-    for (int j = 0; j < loop; j++)
-    {
+    for (int j = 0; j < loop; j++) {
       int pid = ptr + (j << 5);
 
       float weight = 0;
       int rid = 0;
-      if (pid < hb && edge_mask[permute[pid] * h + hid]> attn_drop)
+      if (pid < hb && edge_mask[permute[pid] * h + hid] > attn_drop)
       // if (pid < hb)
       {
         rid = row_ind[pid];
@@ -829,14 +744,13 @@ __global__ void mhspmm_backward_kernel(
         weight = LeakyRelu(weight, negative_slope);
         float expAll = edge_sum[rid * h + hid];
         float weightMax = edge_max[rid * h + hid];
-        weight = exp(weight - weightMax) / expAll;//;
+        weight = exp(weight - weightMax) / expAll; //;
       }
       attn_val_sh[threadIdx.x] = weight / (1 - attn_drop);
       rid_sh[threadIdx.x] = rid;
       __syncwarp();
       int jj = lb + (j << 5);
-      for (int kk = 0; kk < 32 && jj + kk < hb; kk++)
-      {
+      for (int kk = 0; kk < 32 && jj + kk < hb; kk++) {
         int rid = rid_sh[kk];
         float val = attn_val_sh[kk];
         acc += val * grad_in[rid * h * f + hid * f + fid];
@@ -850,10 +764,10 @@ __global__ void mhspmm_backward_kernel(
 
 __global__ void mhspmm_backward_kernel_small_f(
     int m, int nnz, int h, int f, float negative_slope, float attn_drop,
-    const int *row_ptr, const int *col_ind, const int *col_ptr, const int *row_ind,const int* permute,
-    const float *edge_max, const float *edge_sum, const float *edge_mask,
-    const float *attn_row, const float *attn_col, const float *grad_in, float *grad_out)
-{
+    const int *row_ptr, const int *col_ind, const int *col_ptr,
+    const int *row_ind, const int *permute, const float *edge_max,
+    const float *edge_sum, const float *edge_mask, const float *attn_row,
+    const float *attn_col, const float *grad_in, float *grad_out) {
   int cid = blockIdx.x;
   int hid = threadIdx.y;
   int lb = col_ptr[cid];
@@ -868,12 +782,11 @@ __global__ void mhspmm_backward_kernel_small_f(
   // int fid = threadIdx.y * 32 + threadIdx.x;
   {
     float acc = 0;
-    for (int j = 0; j < loop; j++)
-    {
+    for (int j = 0; j < loop; j++) {
       int pid = ptr + (j << 5);
       attn_val_sh[32 * hid + threadIdx.x] = 0;
-      if (pid < hb && edge_mask[permute[pid] * h + hid]> attn_drop)
-      
+      if (pid < hb && edge_mask[permute[pid] * h + hid] > attn_drop)
+
       {
         int rid = row_ind[pid];
         float attn_row_val = attn_row[rid * h + hid];
@@ -886,8 +799,7 @@ __global__ void mhspmm_backward_kernel_small_f(
       }
       __syncwarp();
       int jj = lb + (j << 5);
-      for (int kk = 0; kk < 32 && jj + kk < hb; kk++)
-      {
+      for (int kk = 0; kk < 32 && jj + kk < hb; kk++) {
         int rid = row_ind[jj + kk];
         float val = attn_val_sh[32 * hid + kk];
         acc += val * grad_in[rid * h * f + hid * f + fid];
@@ -907,8 +819,7 @@ __global__ void mhsddmm(const int v, const int f, const int h, const int nnz,
   int cid = threadIdx.x;
   int hid = blockIdx.y;
 
-  if (blockIdx.x < nnz / 16)
-  {
+  if (blockIdx.x < nnz / 16) {
     float multi[4] = {0, 0, 0, 0};
     int offset1[4], offset2[4];
     float D1tmp[4], D2tmp[4];
@@ -924,34 +835,29 @@ __global__ void mhsddmm(const int v, const int f, const int h, const int nnz,
     selfAddConst4<int>(offset1, hid * f);
     selfMulConst4<int>(offset2, f * h);
     selfAddConst4<int>(offset2, hid * f);
-    for (int i = 0; i < (f >> 5); i++)
-    {
+    for (int i = 0; i < (f >> 5); i++) {
       Load4<float, float>(D1tmp, grad, offset1, cid);
       Load4<float, float>(D2tmp, feature, offset2, cid);
       Dot4<float>(multi, D1tmp, D2tmp);
       cid += 32;
     }
     int res = f & 31;
-    if (res)
-    {
+    if (res) {
       float D1[4] = {0, 0, 0, 0}, D2[4] = {0, 0, 0, 0};
-      if (threadIdx.x < res)
-      {
+      if (threadIdx.x < res) {
         Load4<float, float>(D1, grad, offset1, cid);
         Load4<float, float>(D2, feature, offset2, cid);
         Dot4<float>(multi, D1, D2);
       }
     }
     AllReduce4<float>(multi, 16, 32);
-    if (threadIdx.x == 0)
-    {
+    if (threadIdx.x == 0) {
       out[eid * h + hid] = multi[0];
       out[(eid + 1) * h + hid] = multi[1];
       out[(eid + 2) * h + hid] = multi[2];
       out[(eid + 3) * h + hid] = multi[3];
     }
-  }
-  else // Dynamic parrallel?
+  } else // Dynamic parrallel?
   {
     eid = nnz - (nnz & 15) + (blockIdx.x - (nnz / 16));
     int offset1 = findRow(rowptr, eid, 0, v) * f * h + hid * f;
@@ -959,8 +865,7 @@ __global__ void mhsddmm(const int v, const int f, const int h, const int nnz,
     float multi = 0;
     int off1 = cid = threadIdx.x;
     float D1tmp0, D2tmp0;
-    for (int cc = 0; cc < (f >> 5); cc++)
-    {
+    for (int cc = 0; cc < (f >> 5); cc++) {
       D1tmp0 = grad[offset1 + cid];
       D2tmp0 = feature[offset2 + cid];
       multi += D1tmp0 * D2tmp0;
@@ -968,32 +873,28 @@ __global__ void mhsddmm(const int v, const int f, const int h, const int nnz,
     }
     int res = f & 31;
     D1tmp0 = D2tmp0 = 0;
-    if (res)
-    {
-      if (off1 < res)
-      {
+    if (res) {
+      if (off1 < res) {
         D1tmp0 = grad[offset1 + cid];
         D2tmp0 = feature[offset2 + cid];
       }
       multi += D1tmp0 * D2tmp0;
     }
-    for (int stride = 16; stride > 0; stride >>= 1)
-    {
+    for (int stride = 16; stride > 0; stride >>= 1) {
       multi += __shfl_xor_sync(0xffffffff, multi, stride, 32);
     }
-    if (threadIdx.x == 0 && threadIdx.y == 0)
-    {
+    if (threadIdx.x == 0 && threadIdx.y == 0) {
       out[eid * h + hid] = multi;
     }
   }
 }
 
 __global__ void fused_backward_kernel(
-    int m, int nnz, int h, int f, float attn_drop, const int *row_ptr, const int *col_ind,
-    const float negative_slope, const float *edge_max, const float *edge_sum, const float *edge_mask,
-    const float *attn_row, const float *attn_col, const float *grad_edge_csr,
-    float *grad_attn_row, float *grad_attn_col)
-{
+    int m, int nnz, int h, int f, float attn_drop, const int *row_ptr,
+    const int *col_ind, const float negative_slope, const float *edge_max,
+    const float *edge_sum, const float *edge_mask, const float *attn_row,
+    const float *attn_col, const float *grad_edge_csr, float *grad_attn_row,
+    float *grad_attn_col) {
   int rid = blockIdx.x;
   int hid = threadIdx.y;
   int lb = row_ptr[rid];
@@ -1002,68 +903,62 @@ __global__ void fused_backward_kernel(
   int ptr = lb + threadIdx.x;
   float attn_row_val = attn_row[rid * h + hid];
   float weightSum = 0;
-  for (int j = 0; j < loop; j++)
-  {
+  for (int j = 0; j < loop; j++) {
     int pid = ptr + (j << 5);
     float weight = 0;
 
     // if (pid < hb && edge_mask[pid * h + hid]> attn_drop)
-    if (pid < hb)
-    {
+    if (pid < hb) {
       int cid = col_ind[pid];
       float attn_col_val = attn_col[cid * h + hid];
       float val_leaky = LeakyRelu(attn_row_val + attn_col_val, negative_slope);
       // if (val_leaky != edge_relu_csr[pid * h + hid])
       //     printf("leakyrelu value error\n");
-      float val_softmax =
-          exp(val_leaky - edge_max[rid * h + hid]) / edge_sum[rid * h + hid];// / (1 - attn_drop);
+      float val_softmax = exp(val_leaky - edge_max[rid * h + hid]) /
+                          edge_sum[rid * h + hid]; // / (1 - attn_drop);
       // if (val_softmax != edge_softmax_csr[pid * h + hid])
       //     printf("softmax value error\n");
-      float g_edge=0;
-      if(edge_mask[pid * h + hid]> attn_drop)
-        g_edge=grad_edge_csr[pid*h+hid]/(1.0-attn_drop);
+      float g_edge = 0;
+      if (edge_mask[pid * h + hid] > attn_drop)
+        g_edge = grad_edge_csr[pid * h + hid] / (1.0 - attn_drop);
       weight = val_softmax * g_edge;
     }
     __syncwarp();
-    for (int stride = 16; stride > 0; stride >>= 1)
-    {
+    for (int stride = 16; stride > 0; stride >>= 1) {
       weight += __shfl_xor_sync(0xffffffff, weight, stride, 32);
     }
     weightSum = weight + weightSum;
   }
 
   float grad_row_sum = 0;
-  for (int j = 0; j < loop; j++)
-  {
+  for (int j = 0; j < loop; j++) {
     int pid = ptr + (j << 5);
     float grad_out = 0;
     int eid = pid * h + hid;
     // if (pid < hb && edge_mask[pid * h + hid]> attn_drop)
-    if (pid < hb)
-    {
+    if (pid < hb) {
       int cid = col_ind[pid];
       float attn_col_val = attn_col[cid * h + hid];
       float val_leaky = LeakyRelu(attn_row_val + attn_col_val, negative_slope);
       // if (val_leaky != edge_relu_csr[pid * h + hid])
       //     printf("leakyrelu value error\n");
-      float val_softmax =
-          exp(val_leaky - edge_max[rid * h + hid]) / edge_sum[rid * h + hid];// / (1.0 - attn_drop);
+      float val_softmax = exp(val_leaky - edge_max[rid * h + hid]) /
+                          edge_sum[rid * h + hid]; // / (1.0 - attn_drop);
       // if (val_softmax != edge_softmax_csr[pid * h + hid])
       //     printf("softmax value error\n");
-      float g_edge=0;
-      if(edge_mask[pid * h + hid]> attn_drop)
-        g_edge=grad_edge_csr[eid]/(1.0-attn_drop);
-      grad_out = val_softmax * (g_edge - weightSum);///(1.0-attn_drop);
+      float g_edge = 0;
+      if (edge_mask[pid * h + hid] > attn_drop)
+        g_edge = grad_edge_csr[eid] / (1.0 - attn_drop);
+      grad_out = val_softmax * (g_edge - weightSum); ///(1.0-attn_drop);
       if (val_leaky < 0)
         grad_out = grad_out * negative_slope;
-      
+
       // grad_edge_for_gather_csr[eid] = grad_out;
       atomicAdd(&grad_attn_col[cid * h + hid], grad_out);
     }
 
     __syncwarp();
-    for (int stride = 16; stride > 0; stride >>= 1)
-    {
+    for (int stride = 16; stride > 0; stride >>= 1) {
       grad_out += __shfl_xor_sync(0xffffffff, grad_out, stride, 32);
     }
     grad_row_sum += grad_out;
@@ -1075,8 +970,7 @@ __global__ void fused_backward_kernel(
 __global__ void gather_col(int m, int nnz, int h, int f, const int *col_ptr,
                            const int *permute,
                            const float *grad_edge_for_gather_csr,
-                           float *grad_attn_col)
-{
+                           float *grad_attn_col) {
   int cid = blockIdx.x;
   int hid = threadIdx.y;
   int lb = col_ptr[cid];
@@ -1084,16 +978,14 @@ __global__ void gather_col(int m, int nnz, int h, int f, const int *col_ptr,
   int ptr = lb + threadIdx.x;
   int loop = (hb - lb + 31) / 32;
   float grad_col_sum = 0;
-  for (int j = 0; j < loop; j++)
-  {
+  for (int j = 0; j < loop; j++) {
     int pid = ptr + (j << 5);
     float grad = 0;
     if (pid < hb)
       grad = grad_edge_for_gather_csr[permute[pid] * h + hid];
     __syncwarp();
 
-    for (int stride = 16; stride > 0; stride >>= 1)
-    {
+    for (int stride = 16; stride > 0; stride >>= 1) {
       grad += __shfl_xor_sync(0xffffffff, grad, stride, 32);
     }
     grad_col_sum += grad;
@@ -1103,12 +995,11 @@ __global__ void gather_col(int m, int nnz, int h, int f, const int *col_ptr,
       printf("error,%f,%f\n", grad_attn_col[cid * h + hid], grad_col_sum);
 }
 
-void gat_backward(int m, int nnz, int h, int f, float negative_slope, float attn_drop,
-                  int *row_ptr, int *col_ind, int *col_ptr, int *row_ind,
-                  int *permute,
-                  float *edge_max, float *edge_sum, float *edge_mask,
-                  float *in_feat,
-                  float *attn_row, float *attn_col,
+void gat_backward(int m, int nnz, int h, int f, float negative_slope,
+                  float attn_drop, int *row_ptr, int *col_ind, int *col_ptr,
+                  int *row_ind, int *permute, float *edge_max, float *edge_sum,
+                  float *edge_mask, float *in_feat, float *attn_row,
+                  float *attn_col,
                   float *grad,          // input grad
                   float *grad_edge_csr, // temp grad
                   // float *grad_edge_for_gather_csr, //temp grad
@@ -1119,37 +1010,39 @@ void gat_backward(int m, int nnz, int h, int f, float negative_slope, float attn
   int seed = time(0);
   // if (f > 64)
   // {
-    mhspmm_backward_kernel<<<dim3(m, h, 1), dim3(32, (f + 31) / 32, 1), 32 * (sizeof(float) + sizeof(int))>>>(
-        m, nnz, h, f, negative_slope, attn_drop, row_ptr, col_ind, col_ptr, row_ind,permute,
-        edge_max, edge_sum, edge_mask, attn_row, attn_col, grad, grad_feat);
+  mhspmm_backward_kernel<<<dim3(m, h, 1), dim3(32, (f + 31) / 32, 1),
+                           32 * (sizeof(float) + sizeof(int))>>>(
+      m, nnz, h, f, negative_slope, attn_drop, row_ptr, col_ind, col_ptr,
+      row_ind, permute, edge_max, edge_sum, edge_mask, attn_row, attn_col, grad,
+      grad_feat);
   // }
   // else
   // {
-  //   mhspmm_backward_kernel_small_f<<<dim3(m, 1, 1), dim3(32, h, 1), 32 * h * sizeof(float)>>>(
-  //       m, nnz, h, f, negative_slope, attn_drop, row_ptr, col_ind, col_ptr, row_ind,permute,
-  //       edge_max, edge_sum, edge_mask, attn_row, attn_col, grad, grad_feat);
+  //   mhspmm_backward_kernel_small_f<<<dim3(m, 1, 1), dim3(32, h, 1), 32 * h *
+  //   sizeof(float)>>>(
+  //       m, nnz, h, f, negative_slope, attn_drop, row_ptr, col_ind, col_ptr,
+  //       row_ind,permute, edge_max, edge_sum, edge_mask, attn_row, attn_col,
+  //       grad, grad_feat);
   // }
 
   mhsddmm<<<dim3(nnz / 16 + (nnz & 15), h, 1), dim3(32, 4, 1)>>>(
       m, f, h, nnz, row_ptr, col_ind, grad, in_feat, grad_edge_csr);
 
   fused_backward_kernel<<<dim3(m, 1, 1), dim3(32, h, 1)>>>(
-      m, nnz, h, f, attn_drop, row_ptr, col_ind, negative_slope, edge_max, edge_sum, edge_mask,
-      attn_row, attn_col, grad_edge_csr, grad_attn_row, grad_attn_col);
+      m, nnz, h, f, attn_drop, row_ptr, col_ind, negative_slope, edge_max,
+      edge_sum, edge_mask, attn_row, attn_col, grad_edge_csr, grad_attn_row,
+      grad_attn_col);
 
   // gather_col<<<dim3(m, 1, 1), dim3(32, h, 1)>>>(m, nnz, h, f, col_ptr,
   // permute, grad_edge_for_gather_csr, grad_attn_col);
 }
 
 std::vector<torch::Tensor> gat_backward_cuda(
-    float negative_slope, float attn_drop,
-    torch::Tensor row_ptr, torch::Tensor col_ind,
-    torch::Tensor col_ptr, torch::Tensor row_ind,
-    torch::Tensor permute,
-    torch::Tensor edge_max, torch::Tensor edge_sum, torch::Tensor edge_mask,
-    torch::Tensor in_feat,
-    torch::Tensor attn_row, torch::Tensor attn_col, torch::Tensor grad)
-{
+    float negative_slope, float attn_drop, torch::Tensor row_ptr,
+    torch::Tensor col_ind, torch::Tensor col_ptr, torch::Tensor row_ind,
+    torch::Tensor permute, torch::Tensor edge_max, torch::Tensor edge_sum,
+    torch::Tensor edge_mask, torch::Tensor in_feat, torch::Tensor attn_row,
+    torch::Tensor attn_col, torch::Tensor grad) {
 
   const auto m = row_ptr.size(0) - 1;
   const auto nnz = col_ind.size(0);
@@ -1163,12 +1056,11 @@ std::vector<torch::Tensor> gat_backward_cuda(
   auto grad_attn_row = torch::empty({m, h}, options);
   auto grad_attn_col = torch::zeros({m, h}, options);
 
-  gat_backward(m, nnz, h, f, negative_slope, attn_drop,
-               row_ptr.data_ptr<int>(), col_ind.data_ptr<int>(),
-               col_ptr.data_ptr<int>(), row_ind.data_ptr<int>(),
-               permute.data_ptr<int>(),
-               edge_max.data_ptr<float>(), edge_sum.data_ptr<float>(), edge_mask.data_ptr<float>(),
-               in_feat.data_ptr<float>(),
+  gat_backward(m, nnz, h, f, negative_slope, attn_drop, row_ptr.data_ptr<int>(),
+               col_ind.data_ptr<int>(), col_ptr.data_ptr<int>(),
+               row_ind.data_ptr<int>(), permute.data_ptr<int>(),
+               edge_max.data_ptr<float>(), edge_sum.data_ptr<float>(),
+               edge_mask.data_ptr<float>(), in_feat.data_ptr<float>(),
                attn_row.data_ptr<float>(), attn_col.data_ptr<float>(),
                grad.data_ptr<float>(), grad_edge_csr.data_ptr<float>(),
                grad_feat.data_ptr<float>(), grad_attn_row.data_ptr<float>(),
@@ -1177,24 +1069,21 @@ std::vector<torch::Tensor> gat_backward_cuda(
   return {grad_feat, grad_attn_row, grad_attn_col};
 }
 
-__device__ __forceinline__ float atomicMaxFloat(float *addr, float value)
-{
+__device__ __forceinline__ float atomicMaxFloat(float *addr, float value) {
   float old;
-  old = (value >= 0) ? __int_as_float(atomicMax((int *)addr, __float_as_int(value))) : __uint_as_float(atomicMin((unsigned int *)addr, __float_as_uint(value)));
+  old = (value >= 0)
+            ? __int_as_float(atomicMax((int *)addr, __float_as_int(value)))
+            : __uint_as_float(
+                  atomicMin((unsigned int *)addr, __float_as_uint(value)));
 
   return old;
 }
 
 __global__ void fused_forward_kernel_tb_pr(
-    int m, int nnz, int h, int f,
-    const float *attn_row, const float *attn_col,
-    const int *row_ptr, const int *col_ind,
-    const float *in_feat,
-    const float negative_slope,
-    const int *tile_scheduler,
-    float *edge_max, float *edge_sum,
-    float *out_feat)
-{
+    int m, int nnz, int h, int f, const float *attn_row, const float *attn_col,
+    const int *row_ptr, const int *col_ind, const float *in_feat,
+    const float negative_slope, const int *tile_scheduler, float *edge_max,
+    float *edge_sum, float *out_feat) {
   int tile_id = blockIdx.x;
   int rid = tile_scheduler[tile_id * 2];
   int tile_id_in_row = tile_scheduler[tile_id * 2 + 1];
@@ -1212,8 +1101,7 @@ __global__ void fused_forward_kernel_tb_pr(
   float row_val = 0;
   float edge_val = 0;
 
-  if (ptr < hb)
-  {
+  if (ptr < hb) {
     cid = col_ind[ptr];
     row_val = attn_row[rh_id];
     edge_val = row_val + attn_col[cid * h + hid];
@@ -1221,36 +1109,29 @@ __global__ void fused_forward_kernel_tb_pr(
     weightMax = edge_val;
   }
 
-  for (int stride = 16; stride > 0; stride >>= 1)
-  {
+  for (int stride = 16; stride > 0; stride >>= 1) {
     float tmp = __shfl_xor_sync(0xffffffff, weightMax, stride, 32);
     weightMax = MAX(tmp, weightMax);
   }
-  if (threadIdx.x == 0)
-  {
+  if (threadIdx.x == 0) {
     atomicMaxFloat(&edge_max[rh_id], weightMax);
   }
   __threadfence();
   weightMax = edge_max[rh_id];
 
-  if (ptr < hb)
-  {
+  if (ptr < hb) {
     edge_val = exp(edge_val - weightMax);
-  }
-  else
-  {
+  } else {
     edge_val = 0;
   }
 
   expAll = edge_val;
-  for (int stride = 16; stride > 0; stride >>= 1)
-  {
+  for (int stride = 16; stride > 0; stride >>= 1) {
     float tmp = __shfl_xor_sync(0xffffffff, expAll, stride, 32);
     expAll += tmp;
   }
 
-  if (threadIdx.x == 0)
-  {
+  if (threadIdx.x == 0) {
     atomicAdd(&edge_sum[rh_id], expAll);
   }
   __threadfence();
@@ -1258,11 +1139,9 @@ __global__ void fused_forward_kernel_tb_pr(
 
   edge_val = edge_val / expAll;
 
-  for (int fid = 0; fid < f; fid++)
-  {
+  for (int fid = 0; fid < f; fid++) {
     partial_sum = in_feat[cid * h * f + hid * f + fid] * edge_val;
-    for (int stride = 16; stride > 0; stride >>= 1)
-    {
+    for (int stride = 16; stride > 0; stride >>= 1) {
       float tmp = __shfl_xor_sync(0xffffffff, partial_sum, stride, 32);
       partial_sum += tmp;
     }
@@ -1272,15 +1151,10 @@ __global__ void fused_forward_kernel_tb_pr(
 }
 
 __global__ void fused_forward_kernel_tb_sr(
-    int m, int nnz, int h, int f,
-    const float *attn_row, const float *attn_col,
-    const int *row_ptr, const int *col_ind,
-    const float *in_feat,
-    const float negative_slope,
-    const int *tile_scheduler,
-    float *edge_max, float *edge_sum,
-    float *out_feat)
-{
+    int m, int nnz, int h, int f, const float *attn_row, const float *attn_col,
+    const int *row_ptr, const int *col_ind, const float *in_feat,
+    const float negative_slope, const int *tile_scheduler, float *edge_max,
+    float *edge_sum, float *out_feat) {
   int tile_id = blockIdx.x;
   int rid = tile_scheduler[tile_id * 2];
   int tile_id_in_row = tile_scheduler[tile_id * 2 + 1];
@@ -1303,8 +1177,7 @@ __global__ void fused_forward_kernel_tb_sr(
   float row_val = 0;
   float edge_val = 0;
 
-  if (ptr < hb)
-  {
+  if (ptr < hb) {
     cid = col_ind[ptr];
     row_val = attn_row[rh_id];
     edge_val = row_val + attn_col[cid * h + hid];
@@ -1312,36 +1185,29 @@ __global__ void fused_forward_kernel_tb_sr(
     weightMax = edge_val;
   }
 
-  for (int stride = 16; stride > 0; stride >>= 1)
-  {
+  for (int stride = 16; stride > 0; stride >>= 1) {
     float tmp = __shfl_xor_sync(0xffffffff, weightMax, stride, 32);
     weightMax = MAX(tmp, weightMax);
   }
-  if (threadIdx.x == 0)
-  {
+  if (threadIdx.x == 0) {
     atomicMaxFloat(&edge_max[rh_id], weightMax);
   }
   __threadfence();
   weightMax = edge_max[rh_id];
 
-  if (ptr < hb)
-  {
+  if (ptr < hb) {
     edge_val = exp(edge_val - weightMax);
-  }
-  else
-  {
+  } else {
     edge_val = 0;
   }
 
   expAll = edge_val;
-  for (int stride = 16; stride > 0; stride >>= 1)
-  {
+  for (int stride = 16; stride > 0; stride >>= 1) {
     float tmp = __shfl_xor_sync(0xffffffff, expAll, stride, 32);
     expAll += tmp;
   }
 
-  if (threadIdx.x == 0)
-  {
+  if (threadIdx.x == 0) {
     atomicAdd(&edge_sum[rh_id], expAll);
   }
   __threadfence();
@@ -1354,12 +1220,10 @@ __global__ void fused_forward_kernel_tb_sr(
   __syncthreads();
   // for (int fid = threadIdx.x; fid < f; fid += 32)
   int fid = blockIdx.y * 32 + threadIdx.x;
-  if (fid < f)
-  {
+  if (fid < f) {
     int offset_f = hid * f + fid;
     partial_sum = 0;
-    for (int jj = 0; jj < 32 && jj + offset < hb; jj++)
-    {
+    for (int jj = 0; jj < 32 && jj + offset < hb; jj++) {
       int cid = cid_shared[jj];
       // int cid=col_ind[jj+offset];
       // if(cid_shared[jj]>=m){
@@ -1373,19 +1237,18 @@ __global__ void fused_forward_kernel_tb_sr(
 }
 
 std::vector<torch::Tensor>
-gat_forward_tb_cuda(
-    torch::Tensor attn_row, torch::Tensor attn_col,
-    torch::Tensor row_ptr, torch::Tensor col_ind,
-    float negative_slope, torch::Tensor in_feat,
-    torch::Tensor tile_scheduler)
-{
+gat_forward_tb_cuda(torch::Tensor attn_row, torch::Tensor attn_col,
+                    torch::Tensor row_ptr, torch::Tensor col_ind,
+                    float negative_slope, torch::Tensor in_feat,
+                    torch::Tensor tile_scheduler) {
   const auto m = row_ptr.size(0) - 1;
   const auto nnz = col_ind.size(0);
   const auto h = attn_row.size(1);
   const auto f = in_feat.size(2);
   const auto tile_num = tile_scheduler.size(0);
   auto devid = attn_row.device().index();
-  auto options = torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA, devid);
+  auto options =
+      torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCUDA, devid);
   auto out_feat = torch::zeros({m, h, f}, options);
   auto edge_max = torch::zeros({m, h}, options);
   auto edge_sum = torch::zeros({m, h}, options);
@@ -1398,13 +1261,11 @@ gat_forward_tb_cuda(
   //     tile_scheduler.data_ptr<int>(),
   //     edge_max.data_ptr<float>(), edge_sum.data_ptr<float>(),
   //     out_feat.data_ptr<float>());
-  fused_forward_kernel_tb_sr<<<dim3(tile_num, (f + 31) / 32, 1), dim3(32, h, 1), 32 * h * sizeof(float)>>>(
-      m, nnz, h, f,
-      attn_row.data_ptr<float>(), attn_col.data_ptr<float>(),
+  fused_forward_kernel_tb_sr<<<dim3(tile_num, (f + 31) / 32, 1), dim3(32, h, 1),
+                               32 * h * sizeof(float)>>>(
+      m, nnz, h, f, attn_row.data_ptr<float>(), attn_col.data_ptr<float>(),
       row_ptr.data_ptr<int>(), col_ind.data_ptr<int>(),
-      in_feat.data_ptr<float>(),
-      negative_slope,
-      tile_scheduler.data_ptr<int>(),
+      in_feat.data_ptr<float>(), negative_slope, tile_scheduler.data_ptr<int>(),
       edge_max.data_ptr<float>(), edge_sum.data_ptr<float>(),
       out_feat.data_ptr<float>());
   return {out_feat, edge_max, edge_sum};
