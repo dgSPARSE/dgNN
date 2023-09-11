@@ -89,4 +89,4 @@ This project also implements part of algorithms from [GNN-computing](https://git
 
 ---
 
-If you meet any problems in this repo, fill free to write issues or contact us by e-mail (yzm18@mails.tsinghua.edu.cn, hengrui-18@mails.tsinghua.edu.cn).
+If you meet any problems in this repo, fill free to write issues or contact us by e-mail (team@dgsparse.org).
