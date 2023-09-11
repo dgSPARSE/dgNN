@@ -71,9 +71,8 @@ python train_edgeconv.py
 
 [CogDL](https://github.com/THUDM/cogdl) is a flexible and efficient graph-learning framework that uses GE-SpMM to accelerate GNN algorithms. This repo is implemented in CogDL as a submodule.
 
-### LICENSE
+### Citation
 
-This project is projected by [Apache-2.0](https://github.com/dgSPARSE/dgNN/blob/main/LICENSE) License.
 If you use our dgNN project in your research, please cite the following bib:
 
 This project also implements part of algorithms from [GNN-computing](https://github.com/xxcclong/GNN-Computing), especially method of neighbor grouping in SpMM. If you use our dgNN project in your research, please also cite the following bib:
